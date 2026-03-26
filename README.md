@@ -68,6 +68,20 @@ Add to your `claude_desktop_config.json`:
 {
   "mcpServers": {
     "tree-of-thoughts": {
+      "command": "/absolute/path/to/tot-mcp"
+    }
+  }
+}
+```
+
+That's it. Semantic search works out of the box via the bundled on-device model. No API keys needed.
+
+Optionally, for faster embeddings via OpenAI:
+
+```json
+{
+  "mcpServers": {
+    "tree-of-thoughts": {
       "command": "/absolute/path/to/tot-mcp",
       "env": {
         "OPENAI_API_KEY": "sk-..."
@@ -95,17 +109,29 @@ All configuration is via environment variables.
 | `TOT_DASHBOARD_PORT` | Dashboard HTTP port | `4545` |
 | `TOT_NO_DASHBOARD` | Set to any value to disable dashboard | (not set) |
 
-### Embedding providers (optional, enables semantic search)
+### Embedding providers
 
-Without an embedding provider, retrieval falls back to FTS5 keyword search only. Set one of these to enable vector search:
+Semantic search is enabled by default using an on-device embedding model. No API keys needed.
 
-| Variable | Provider | Default model |
-|---|---|---|
-| `OPENAI_API_KEY` | OpenAI | `text-embedding-3-small` (1536d) |
-| `VOYAGE_API_KEY` | Voyage AI | `voyage-3-lite` (512d) |
-| `OLLAMA_BASE_URL` | Ollama (local) | `mxbai-embed-large` (1024d) |
+| Provider | Variable | Default model | Dimensions | Notes |
+|---|---|---|---|---|
+| **Local (default)** | (none needed) | `all-MiniLM-L6-v2` | 384 | On-device, pure Go, zero config. Downloads model (~22MB) on first run. |
+| OpenAI | `OPENAI_API_KEY` | `text-embedding-3-small` | 1536 | Fastest. Requires API key. |
+| Voyage AI | `VOYAGE_API_KEY` | `voyage-3-lite` | 512 | Requires API key. |
+| Ollama | `OLLAMA_BASE_URL` | `mxbai-embed-large` | 1024 | Local, requires Ollama running. |
 
-Override the model with `TOT_EMBED_MODEL`. Force a specific provider with `TOT_EMBED_PROVIDER` (openai, voyage, or ollama).
+**How provider selection works:**
+1. If `OPENAI_API_KEY` is set, uses OpenAI (fastest, cloud).
+2. Else if `VOYAGE_API_KEY` is set, uses Voyage.
+3. Else if `OLLAMA_BASE_URL` is set, uses Ollama.
+4. Else uses the **local on-device provider** automatically.
+5. If local model fails to load, falls back to FTS5 keyword search only.
+
+Force a specific provider with `TOT_EMBED_PROVIDER` (local, openai, voyage, or ollama). Override the model with `TOT_EMBED_MODEL`. Change the model cache directory with `TOT_MODEL_CACHE` (default: `~/.tot-mcp/models/`).
+
+**On first run**, the local provider downloads `sentence-transformers/all-MiniLM-L6-v2` from HuggingFace (~22MB ONNX model). Subsequent starts load from cache in under a second. For air-gapped environments, pre-download the model files into `~/.tot-mcp/models/` before running.
+
+The local provider uses [Hugot](https://github.com/knights-analytics/hugot) with a pure Go ONNX backend. Zero CGO. The single-binary promise is preserved.
 
 ## Tools (18)
 
@@ -282,8 +308,9 @@ All tables use WAL mode and foreign keys. Recursive CTEs handle path extraction 
 | `modernc.org/sqlite` | SQLite driver | Pure Go. Zero CGO. Static binary. No C compiler needed. |
 | `github.com/mark3labs/mcp-go` | MCP SDK | Tool registration, stdio transport, JSON-RPC 2.0. |
 | `github.com/google/uuid` | UUID generation | Node and tree IDs. |
+| `github.com/knights-analytics/hugot` | On-device embeddings | Pure Go ONNX backend. Runs `all-MiniLM-L6-v2` locally. |
 
-Three dependencies. No CGO. The binary is fully static and runs anywhere.
+Four dependencies. No CGO. The binary is fully static and runs anywhere.
 
 ### Why Go over TypeScript
 
@@ -309,7 +336,7 @@ The retrieval store creates a knowledge flywheel. Every solved problem becomes c
 3. Results from both are merged by solution ID. Solutions that appear in both vector and keyword results get a 20% similarity boost ("hybrid" match).
 4. Results are sorted by similarity and capped at top_k.
 
-**Fallback.** Without an embedding provider, step 1 is skipped. FTS5 keyword search still works. You get keyword matches without semantic understanding.
+**Fallback.** If the local model fails to load and no API key is set, vector search is skipped. FTS5 keyword search still works. You get keyword matches without semantic understanding.
 
 **Cross-session value.** After 50-100 stored solutions, `retrieve_context` starts surfacing relevant prior reasoning before you even begin a new tree. The server evolves from a reasoning tool into a reasoning memory.
 

@@ -5,10 +5,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
+	"sync"
+
+	"github.com/knights-analytics/hugot"
+	"github.com/knights-analytics/hugot/pipelines"
 )
 
 // Provider generates embedding vectors from text.
@@ -38,6 +44,7 @@ func get() Provider {
 	explicit := strings.ToLower(os.Getenv("TOT_EMBED_PROVIDER"))
 	model := os.Getenv("TOT_EMBED_MODEL")
 
+	// Explicit API providers take priority
 	if explicit == "openai" || (explicit == "" && os.Getenv("OPENAI_API_KEY") != "") {
 		if model == "" {
 			model = "text-embedding-3-small"
@@ -60,6 +67,22 @@ func get() Provider {
 		}
 		return &ollamaProvider{base: base, model: model}
 	}
+
+	// No API key set — try local on-device embeddings as default.
+	// This gives semantic search out of the box without any configuration.
+	if explicit == "local" || explicit == "" {
+		p, err := newLocalProvider(model)
+		if err != nil {
+			if explicit == "local" {
+				// User explicitly asked for local — fail loud
+				log.Printf("[embeddings] local provider failed to initialize: %v", err)
+			}
+			// Else silently fall through to noop
+		} else {
+			return p
+		}
+	}
+
 	return &noopProvider{}
 }
 
@@ -162,8 +185,127 @@ func (p *ollamaProvider) Embed(text string) ([]float32, error) {
 
 type noopProvider struct{}
 
-func (p *noopProvider) Dimensions() int              { return 0 }
-func (p *noopProvider) Embed(string) ([]float32, error) { return nil, nil }
+func (p *noopProvider) Dimensions() int                   { return 0 }
+func (p *noopProvider) Embed(string) ([]float32, error)   { return nil, nil }
+
+// --- Local on-device embeddings via Hugot (pure Go ONNX backend) ---
+
+const (
+	defaultLocalModel = "sentence-transformers/all-MiniLM-L6-v2"
+	localDimensions   = 384 // all-MiniLM-L6-v2 output dimension
+)
+
+type LocalProvider struct {
+	session  *hugot.Session
+	pipeline *pipelines.FeatureExtractionPipeline
+	mu       sync.Mutex // Hugot pipelines are not goroutine-safe
+	dims     int
+}
+
+// newLocalProvider initializes the Hugot session with pure Go backend.
+// On first run it downloads the model from HuggingFace (~22MB) and caches it
+// in ~/.tot-mcp/models/. Subsequent starts load from cache in <1 second.
+func newLocalProvider(model string) (*LocalProvider, error) {
+	if model == "" {
+		model = defaultLocalModel
+	}
+
+	// Cache directory for downloaded models
+	cacheDir := os.Getenv("TOT_MODEL_CACHE")
+	if cacheDir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("cannot determine home directory: %w", err)
+		}
+		cacheDir = filepath.Join(home, ".tot-mcp", "models")
+	}
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		return nil, fmt.Errorf("cannot create model cache dir %s: %w", cacheDir, err)
+	}
+
+	// Initialize Hugot with pure Go backend (zero CGO)
+	session, err := hugot.NewSession(
+		hugot.WithPureGoBackend(),
+		hugot.WithCacheDir(cacheDir),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("hugot session init failed: %w", err)
+	}
+
+	// Load or download the embedding model
+	pipeline, err := session.NewFeatureExtractionPipeline(
+		model,
+		pipelines.WithOutputName("last_hidden_state"),
+	)
+	if err != nil {
+		session.Destroy()
+		return nil, fmt.Errorf("hugot pipeline init for %s failed: %w", model, err)
+	}
+
+	log.Printf("[embeddings] local provider ready: %s (%d-dim, pure Go backend)", model, localDimensions)
+
+	return &LocalProvider{
+		session:  session,
+		pipeline: pipeline,
+		dims:     localDimensions,
+	}, nil
+}
+
+func (p *LocalProvider) Dimensions() int { return p.dims }
+
+func (p *LocalProvider) Embed(text string) ([]float32, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	result, err := p.pipeline.RunPipeline([]string{text})
+	if err != nil {
+		return nil, fmt.Errorf("local embed failed: %w", err)
+	}
+	if len(result.Embeddings) == 0 || len(result.Embeddings[0]) == 0 {
+		return nil, fmt.Errorf("local embed returned empty result")
+	}
+
+	// Mean-pool and return the embedding vector.
+	// Hugot's FeatureExtractionPipeline returns token-level embeddings
+	// shaped [batch][tokens][dims]. We average across the token dimension.
+	tokenEmbeds := result.Embeddings[0] // first (only) input
+	if len(tokenEmbeds) == 0 {
+		return nil, fmt.Errorf("local embed: no token embeddings")
+	}
+
+	dims := len(tokenEmbeds[0])
+	pooled := make([]float32, dims)
+	for _, tok := range tokenEmbeds {
+		for d, v := range tok {
+			pooled[d] += v
+		}
+	}
+	n := float32(len(tokenEmbeds))
+	for d := range pooled {
+		pooled[d] /= n
+	}
+
+	// L2 normalize for cosine similarity
+	var norm float64
+	for _, v := range pooled {
+		norm += float64(v) * float64(v)
+	}
+	norm = math.Sqrt(norm)
+	if norm > 0 {
+		for d := range pooled {
+			pooled[d] = float32(float64(pooled[d]) / norm)
+		}
+	}
+
+	return pooled, nil
+}
+
+// Destroy cleans up the Hugot session. Call on graceful shutdown.
+func (p *LocalProvider) Destroy() {
+	if p.session != nil {
+		p.session.Destroy()
+	}
+}
 
 // --- Pure-Go cosine similarity (no sqlite-vector needed) ---
 

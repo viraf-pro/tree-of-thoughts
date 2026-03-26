@@ -12,6 +12,7 @@ import (
 
 	"github.com/tot-mcp/tot-mcp-go/internal/db"
 	"github.com/tot-mcp/tot-mcp-go/internal/dashboard"
+	"github.com/tot-mcp/tot-mcp-go/internal/embeddings"
 	"github.com/tot-mcp/tot-mcp-go/internal/experiment"
 	"github.com/tot-mcp/tot-mcp-go/internal/retrieval"
 	"github.com/tot-mcp/tot-mcp-go/internal/tree"
@@ -20,6 +21,14 @@ import (
 func main() {
 	if _, err := db.Init(os.Getenv("TOT_DB_PATH")); err != nil {
 		log.Fatal(err)
+	}
+
+	// Initialize embedding provider (local on-device is the default)
+	ep := embeddings.Get()
+	if embeddings.Active() {
+		log.Printf("Embedding provider: %T (%d dimensions)", ep, ep.Dimensions())
+	} else {
+		log.Printf("Embedding provider: none (FTS5 keyword search only)")
 	}
 
 	// Start dashboard HTTP server
@@ -65,6 +74,11 @@ func main() {
 
 	if err := server.ServeStdio(s); err != nil {
 		log.Fatal(err)
+	}
+
+	// Graceful shutdown: clean up local embedding provider if active
+	if lp, ok := ep.(*embeddings.LocalProvider); ok {
+		lp.Destroy()
 	}
 }
 
