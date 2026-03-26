@@ -1,0 +1,39 @@
+# Binaries
+tot-mcp
+tot-mcp-*
+*.exe
+*.dll
+*.so
+*.dylib
+dist/
+
+# Database
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Test
+*.test
+*.out
+coverage.html
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Go
+vendor/
+
+# Logs
+run.log
+*.log
+
+# Environment
+.env
+.env.local
