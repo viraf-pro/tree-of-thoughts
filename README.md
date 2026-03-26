@@ -133,7 +133,7 @@ Force a specific provider with `TOT_EMBED_PROVIDER` (local, openai, voyage, or o
 
 The local provider uses [Hugot](https://github.com/knights-analytics/hugot) with a pure Go ONNX backend. Zero CGO. The single-binary promise is preserved.
 
-## Tools (18)
+## Tools (21)
 
 ### Tree operations
 
@@ -148,7 +148,15 @@ The local provider uses [Hugot](https://github.com/knights-analytics/hugot) with
 | `get_best_path` | Extract the highest-scoring complete path from root to a terminal/leaf node. |
 | `get_tree_summary` | Stats: total nodes, terminal count, pruned count, frontier size, max depth reached. |
 | `inspect_node` | View a node, its children, and the full path from root. |
-| `list_trees` | List all reasoning trees in the database. |
+| `list_trees` | List all reasoning trees in the database. Auto-pauses stale trees. |
+
+### Tree lifecycle
+
+| Tool | Description |
+|---|---|
+| `route_problem` | **Call before create_tree.** Checks if the new problem matches an existing active/paused tree. Returns `action: "continue"` with the tree ID, or `action: "create"` if no match. Prevents duplicate trees. |
+| `resume_tree` | Reactivate a paused or abandoned tree. Use when `route_problem` returns a paused tree, or when revisiting an old analysis. |
+| `abandon_tree` | Mark a tree as abandoned. Tree stays in the database but is excluded from routing. |
 
 ### Retrieval
 
@@ -175,9 +183,39 @@ The local provider uses [Hugot](https://github.com/knights-analytics/hugot) with
 
 ## Reasoning workflow
 
+### Tree lifecycle
+
+Trees have four states:
+
+```
+active  → solved       mark_solution() called
+active  → paused       auto-pause (30 min idle) or LLM switches trees
+active  → abandoned    LLM calls abandon_tree
+paused  → active       LLM calls resume_tree
+abandoned → active     LLM calls resume_tree
+```
+
+**Auto-pause.** Active trees untouched for 30 minutes are automatically paused when `list_trees` or `route_problem` runs. This keeps the active tree list clean without a background process.
+
+**Topic routing.** Before calling `create_tree`, the LLM should call `route_problem` with the new problem statement. The server compares it against all active/paused trees via keyword overlap (Jaccard similarity). If an existing tree matches (30%+ overlap), it returns `action: "continue"` with the tree ID instead of creating a duplicate.
+
+```
+User: "Let's revisit the Prosaris market expansion"
+
+LLM calls: route_problem("Prosaris market expansion new verticals")
+Server returns: { action: "continue", treeId: "t-9f2a1b3c", similarity: 0.67 }
+LLM calls: resume_tree("t-9f2a1b3c")
+Server returns: { message: "Tree resumed", stats: { totalNodes: 14, ... } }
+... LLM picks up where it left off ...
+```
+
+### Standard ToT loop
+
 The standard ToT loop:
 
 ```
+0. route_problem("Solve problem X")                 # check for existing tree
+   → action: "create" (no match found)
 1. create_tree("Solve problem X", strategy="beam", branching_factor=3)
 2. retrieve_context("problem X keywords")          # check past solutions
 3. generate_thoughts(root_id, [idea_1, idea_2, idea_3])

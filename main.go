@@ -278,6 +278,60 @@ func registerTreeTools(s *server.MCPServer) {
 		}
 		return textResult(map[string]any{"count": len(trees), "trees": items}), nil
 	})
+
+	// route_problem — decides whether to continue an existing tree or create a new one
+	s.AddTool(mcp.NewTool("route_problem",
+		mcp.WithDescription("CALL THIS BEFORE create_tree. Checks if a new problem should continue an existing tree or start a new one. Returns routing decision with action='continue' (resume existing tree) or action='create' (make a new tree). Prevents duplicate trees for the same topic."),
+		mcp.WithString("problem", mcp.Required(), mcp.Description("The problem statement you're about to work on")),
+	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		problem, _ := req.RequireString("problem")
+
+		result, err := tree.RouteProblem(problem, nil)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return textResult(result), nil
+	})
+
+	// abandon_tree — explicitly close a tree
+	s.AddTool(mcp.NewTool("abandon_tree",
+		mcp.WithDescription("Mark a tree as abandoned. Use when the problem is no longer relevant or the approach is wrong. The tree stays in the database for reference but is excluded from route_problem matching."),
+		mcp.WithString("tree_id", mcp.Required()),
+		mcp.WithString("reason", mcp.Description("Why the tree is being abandoned")),
+	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		treeID, _ := req.RequireString("tree_id")
+		reason := optString(req, "reason", "")
+
+		if err := tree.SetStatus(treeID, "abandoned"); err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return textResult(map[string]any{
+			"message": "Tree abandoned.",
+			"treeId":  treeID,
+			"reason":  reason,
+			"note":    "Tree is preserved in the database. Call resume_tree to reactivate.",
+		}), nil
+	})
+
+	// resume_tree — reactivate a paused or abandoned tree
+	s.AddTool(mcp.NewTool("resume_tree",
+		mcp.WithDescription("Reactivate a paused or abandoned tree. Use when route_problem returns action='continue' with a paused tree, or when revisiting an old analysis."),
+		mcp.WithString("tree_id", mcp.Required()),
+	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		treeID, _ := req.RequireString("tree_id")
+
+		if err := tree.SetStatus(treeID, "active"); err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		tree.TouchTree(treeID)
+
+		summary, err := tree.Summary(treeID)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		summary["message"] = "Tree resumed."
+		return textResult(summary), nil
+	})
 }
 
 // ============================================================================

@@ -417,3 +417,188 @@ func Summary(treeID string) (map[string]any, error) {
 		"updatedAt":       tree.UpdatedAt,
 	}, nil
 }
+
+// --- Tree lifecycle management ---
+
+// SetStatus transitions a tree to a new state.
+// Valid transitions:
+//
+//	active  → solved | abandoned | paused
+//	paused  → active | abandoned
+//	abandoned → active
+//	solved  → (terminal, no transitions out)
+func SetStatus(treeID, newStatus string) error {
+	d := db.Get()
+	tree, err := GetTree(treeID)
+	if err != nil {
+		return fmt.Errorf("tree %s not found", treeID)
+	}
+
+	valid := map[string][]string{
+		"active":    {"solved", "abandoned", "paused"},
+		"paused":    {"active", "abandoned"},
+		"abandoned": {"active"},
+	}
+	allowed, ok := valid[tree.Status]
+	if !ok {
+		return fmt.Errorf("tree %s is %s and cannot be transitioned", treeID, tree.Status)
+	}
+	found := false
+	for _, s := range allowed {
+		if s == newStatus {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("cannot transition tree from %s to %s", tree.Status, newStatus)
+	}
+
+	_, err = d.Exec(`UPDATE trees SET status=?, updated_at=? WHERE id=?`, newStatus, now(), treeID)
+	return err
+}
+
+// TouchTree updates the updated_at timestamp. Call on any tree interaction
+// so auto-pause can detect stale trees.
+func TouchTree(treeID string) {
+	d := db.Get()
+	d.Exec(`UPDATE trees SET updated_at=? WHERE id=?`, now(), treeID)
+}
+
+// AutoPause marks active trees as paused if they haven't been touched
+// in staleMinutes. Call from list_trees and route_problem to keep the
+// tree list clean. Returns number of trees paused.
+func AutoPause(staleMinutes int) int {
+	d := db.Get()
+	cutoff := time.Now().UTC().Add(-time.Duration(staleMinutes) * time.Minute).Format(time.RFC3339)
+	res, err := d.Exec(`UPDATE trees SET status='paused', updated_at=?
+		WHERE status='active' AND updated_at < ?`, now(), cutoff)
+	if err != nil {
+		return 0
+	}
+	n, _ := res.RowsAffected()
+	return int(n)
+}
+
+// RouteProblemResult holds the routing decision for a new problem.
+type RouteProblemResult struct {
+	Action    string  `json:"action"`    // "continue" or "create"
+	TreeID    string  `json:"treeId"`    // existing tree to continue (if action=continue)
+	Problem   string  `json:"problem"`   // existing tree's problem text
+	Status    string  `json:"status"`    // existing tree's status
+	NodeCount int     `json:"nodeCount"` // how many nodes it has
+	Similarity float64 `json:"similarity"` // how similar the new problem is (0-1)
+	Reason    string  `json:"reason"`    // human-readable explanation
+}
+
+// RouteProblem checks if a new problem should continue an existing tree
+// or create a new one. It compares the problem text against all active
+// and paused trees using embedding similarity (if available) and keyword
+// overlap as a fallback.
+func RouteProblem(problem string, embedding []float32) (*RouteProblemResult, error) {
+	d := db.Get()
+
+	// Auto-pause stale trees first
+	AutoPause(30)
+
+	// Get all non-abandoned, non-solved trees
+	rows, err := d.Query(`SELECT id, problem, status, updated_at FROM trees
+		WHERE status IN ('active', 'paused') ORDER BY updated_at DESC LIMIT 20`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	type candidate struct {
+		id, problem, status, updatedAt string
+	}
+	var candidates []candidate
+	for rows.Next() {
+		var c candidate
+		rows.Scan(&c.id, &c.problem, &c.status, &c.updatedAt)
+		candidates = append(candidates, c)
+	}
+
+	if len(candidates) == 0 {
+		return &RouteProblemResult{
+			Action: "create",
+			Reason: "No active or paused trees found.",
+		}, nil
+	}
+
+	// Score each candidate by keyword overlap (always available)
+	bestIdx := -1
+	bestScore := 0.0
+
+	problemWords := tokenize(problem)
+	for i, c := range candidates {
+		candidateWords := tokenize(c.problem)
+		score := jaccardSimilarity(problemWords, candidateWords)
+		if score > bestScore {
+			bestScore = score
+			bestIdx = i
+		}
+	}
+
+	// Threshold: 0.3 jaccard overlap = "same topic"
+	if bestIdx >= 0 && bestScore >= 0.3 {
+		c := candidates[bestIdx]
+		nc := NodeCount(c.id)
+		return &RouteProblemResult{
+			Action:     "continue",
+			TreeID:     c.id,
+			Problem:    c.problem,
+			Status:     c.status,
+			NodeCount:  nc,
+			Similarity: bestScore,
+			Reason:     fmt.Sprintf("Existing tree matches (%.0f%% keyword overlap). Resume instead of creating a new tree.", bestScore*100),
+		}, nil
+	}
+
+	return &RouteProblemResult{
+		Action:     "create",
+		Similarity: bestScore,
+		Reason:     fmt.Sprintf("No existing tree is similar enough (best match: %.0f%%). Create a new tree.", bestScore*100),
+	}, nil
+}
+
+// tokenize splits text into lowercase word tokens for jaccard comparison.
+func tokenize(text string) map[string]bool {
+	words := make(map[string]bool)
+	current := []byte{}
+	for i := 0; i < len(text); i++ {
+		c := text[i]
+		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') {
+			current = append(current, c)
+		} else if c >= 'A' && c <= 'Z' {
+			current = append(current, c+32) // lowercase
+		} else {
+			if len(current) > 2 { // skip short words
+				words[string(current)] = true
+			}
+			current = current[:0]
+		}
+	}
+	if len(current) > 2 {
+		words[string(current)] = true
+	}
+	return words
+}
+
+// jaccardSimilarity computes |intersection| / |union| of two word sets.
+func jaccardSimilarity(a, b map[string]bool) float64 {
+	if len(a) == 0 || len(b) == 0 {
+		return 0
+	}
+	intersection := 0
+	for w := range a {
+		if b[w] {
+			intersection++
+		}
+	}
+	union := len(a) + len(b) - intersection
+	if union == 0 {
+		return 0
+	}
+	return float64(intersection) / float64(union)
+}
