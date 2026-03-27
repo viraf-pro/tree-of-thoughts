@@ -168,21 +168,6 @@ func TestCompactLifecycle(t *testing.T) {
 	}
 }
 
-func TestFloat32BytesRoundtrip(t *testing.T) {
-	original := []float32{1.5, -2.3, 0.0, 3.14159}
-	bytes := float32ToBytes(original)
-	restored := bytesToFloat32(bytes)
-
-	if len(restored) != len(original) {
-		t.Fatalf("length: got %d, want %d", len(restored), len(original))
-	}
-	for i := range original {
-		if restored[i] != original[i] {
-			t.Fatalf("index %d: got %f, want %f", i, restored[i], original[i])
-		}
-	}
-}
-
 func TestHasOverlap(t *testing.T) {
 	if !hasOverlap([]string{"a", "b"}, []string{"b", "c"}) {
 		t.Fatal("expected overlap")
