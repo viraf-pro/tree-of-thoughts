@@ -602,3 +602,114 @@ func jaccardSimilarity(a, b map[string]bool) float64 {
 	}
 	return float64(intersection) / float64(union)
 }
+
+// --- Cross-tree dependencies ---
+
+// TreeLink represents a relationship between two trees.
+type TreeLink struct {
+	ID         string `json:"id"`
+	SourceTree string `json:"sourceTree"`
+	TargetTree string `json:"targetTree"`
+	LinkType   string `json:"linkType"`
+	Note       string `json:"note"`
+	CreatedAt  string `json:"createdAt"`
+}
+
+// LinkTrees creates a dependency between two trees.
+// Valid link types: depends_on, informs, supersedes, related.
+func LinkTrees(sourceTree, targetTree, linkType, note string) (*TreeLink, error) {
+	d := db.Get()
+	id := uuid.NewString()
+	ts := now()
+
+	validTypes := map[string]bool{"depends_on": true, "informs": true, "supersedes": true, "related": true}
+	if !validTypes[linkType] {
+		return nil, fmt.Errorf("invalid link type %q (use: depends_on, informs, supersedes, related)", linkType)
+	}
+	if sourceTree == targetTree {
+		return nil, fmt.Errorf("cannot link a tree to itself")
+	}
+
+	_, err := d.Exec(`INSERT INTO tree_links (id,source_tree,target_tree,link_type,note,created_at)
+		VALUES (?,?,?,?,?,?)`, id, sourceTree, targetTree, linkType, note, ts)
+	if err != nil {
+		return nil, err
+	}
+
+	return &TreeLink{ID: id, SourceTree: sourceTree, TargetTree: targetTree,
+		LinkType: linkType, Note: note, CreatedAt: ts}, nil
+}
+
+// GetTreeLinks returns all links for a tree (both directions).
+func GetTreeLinks(treeID string) ([]TreeLink, error) {
+	d := db.Get()
+	rows, err := d.Query(`SELECT id,source_tree,target_tree,link_type,note,created_at
+		FROM tree_links WHERE source_tree=? OR target_tree=? ORDER BY created_at DESC`,
+		treeID, treeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []TreeLink
+	for rows.Next() {
+		var l TreeLink
+		rows.Scan(&l.ID, &l.SourceTree, &l.TargetTree, &l.LinkType, &l.Note, &l.CreatedAt)
+		out = append(out, l)
+	}
+	return out, nil
+}
+
+// --- Smart route: "what should I work on next" ---
+
+// SuggestNextWork returns the most promising tree to work on.
+// Looks at: active trees with largest frontier, paused trees with highest best-path score.
+func SuggestNextWork() (map[string]any, error) {
+	d := db.Get()
+
+	// Auto-pause stale trees
+	AutoPause(30)
+
+	// Find active tree with the most frontier nodes (most options to explore)
+	var activeID, activeProblem string
+	var activeFrontier int
+	err := d.QueryRow(`SELECT t.id, t.problem, COUNT(f.node_id)
+		FROM trees t JOIN frontier f ON f.tree_id=t.id
+		WHERE t.status='active' GROUP BY t.id ORDER BY COUNT(f.node_id) DESC LIMIT 1`).
+		Scan(&activeID, &activeProblem, &activeFrontier)
+
+	if err == nil && activeID != "" {
+		return map[string]any{
+			"action":   "continue",
+			"treeId":   activeID,
+			"problem":  activeProblem,
+			"status":   "active",
+			"frontier": activeFrontier,
+			"reason":   fmt.Sprintf("Active tree with %d unexplored nodes in the frontier.", activeFrontier),
+		}, nil
+	}
+
+	// No active trees with frontier. Find paused tree with highest-scoring best path.
+	var pausedID, pausedProblem string
+	var pausedScore float64
+	err = d.QueryRow(`SELECT t.id, t.problem, COALESCE(MAX(n.score),0)
+		FROM trees t JOIN nodes n ON n.tree_id=t.id
+		WHERE t.status='paused' GROUP BY t.id ORDER BY MAX(n.score) DESC LIMIT 1`).
+		Scan(&pausedID, &pausedProblem, &pausedScore)
+
+	if err == nil && pausedID != "" {
+		return map[string]any{
+			"action":    "resume",
+			"treeId":    pausedID,
+			"problem":   pausedProblem,
+			"status":    "paused",
+			"bestScore": pausedScore,
+			"reason":    fmt.Sprintf("Paused tree with best score %.2f. Call resume_tree to reactivate.", pausedScore),
+		}, nil
+	}
+
+	return map[string]any{
+		"action": "create",
+		"reason": "No active or paused trees found. Create a new tree.",
+	}, nil
+}

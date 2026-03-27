@@ -133,7 +133,7 @@ Force a specific provider with `TOT_EMBED_PROVIDER` (local, openai, voyage, or o
 
 The local provider uses [Hugot](https://github.com/knights-analytics/hugot) with a pure Go ONNX backend. Zero CGO. The single-binary promise is preserved.
 
-## Tools (21)
+## Tools (28)
 
 ### Tree operations
 
@@ -157,6 +157,46 @@ The local provider uses [Hugot](https://github.com/knights-analytics/hugot) with
 | `route_problem` | **Call before create_tree.** Checks if the new problem matches an existing active/paused tree. Returns `action: "continue"` with the tree ID, or `action: "create"` if no match. Prevents duplicate trees. |
 | `resume_tree` | Reactivate a paused or abandoned tree. Use when `route_problem` returns a paused tree, or when revisiting an old analysis. |
 | `abandon_tree` | Mark a tree as abandoned. Tree stays in the database but is excluded from routing. |
+| `suggest_next` | Zero-arg "what should I work on next?" Returns the most promising active or paused tree based on frontier size and best scores. |
+
+### Retrieval
+
+| Tool | Description |
+|---|---|
+| `retrieve_context` | Hybrid search past solutions. Vector similarity (if embeddings configured) + FTS5 keyword matching. Results merged, hybrid matches boosted. |
+| `store_solution` | Save a completed solution with tags. Generates an embedding for future semantic search. Links back to the tree and best path. |
+| `retrieval_stats` | Total solutions, embedding coverage, compaction stats, available tags. |
+
+### Compaction (memory decay)
+
+| Tool | Description |
+|---|---|
+| `compact_analyze` | Find solutions older than N days eligible for compression. Returns full content for summary generation. Default: 30 days. |
+| `compact_apply` | Replace a solution's detailed thoughts with a compressed summary. Original archived and restorable. Embedding stays intact. |
+| `compact_restore` | Restore a compacted solution to its original full content from the archive. |
+
+### Knowledge graph
+
+| Tool | Description |
+|---|---|
+| `link_trees` | Create a dependency or relationship between two trees (depends_on, informs, supersedes, related). Use when insights from one analysis inform another. |
+| `get_tree_links` | View all cross-tree dependencies and relationships for a tree. |
+| `audit_log` | View the audit trail of tool calls. Shows what happened, when, and on which tree/node. Use for debugging and decision tracing. |
+
+### Experiment runner
+
+| Tool | Description |
+|---|---|
+| `configure_experiment` | Set the target file, run command, metric regex, timeout, working directory, and git branch prefix for a tree. Call once per tree. |
+| `prepare_experiment` | Apply a code patch (full file replacement) and git commit. Returns commit hash and previous hash for rollback. |
+| `execute_experiment` | Run the training command, parse the metric, auto-evaluate the thought node, keep or git-reset. Long-running (minutes). |
+| `experiment_history` | View experiment stats: total runs, success rate, best metric, crash count. |
+
+### Dashboard
+
+| Tool | Description |
+|---|---|
+| `open_dashboard` | Returns the dashboard URL. Optionally links directly to a specific tree. |
 
 ### Retrieval
 

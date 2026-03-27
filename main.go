@@ -19,6 +19,14 @@ import (
 )
 
 func main() {
+	// CLI mode: if called with arguments, dispatch to CLI handler
+	if len(os.Args) > 1 {
+		if runCLI(os.Args) {
+			return
+		}
+	}
+
+	// MCP server mode (stdio)
 	if _, err := db.Init(os.Getenv("TOT_DB_PATH")); err != nil {
 		log.Fatal(err)
 	}
@@ -51,6 +59,7 @@ func main() {
 	registerTreeTools(s)
 	registerRetrievalTools(s)
 	registerExperimentTools(s)
+	registerKnowledgeTools(s)
 
 	// dashboard tool
 	s.AddTool(mcp.NewTool("open_dashboard",
@@ -404,6 +413,56 @@ func registerRetrievalTools(s *server.MCPServer) {
 	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		return textResult(retrieval.Stats()), nil
 	})
+
+	// compact_analyze — find solutions eligible for compaction
+	s.AddTool(mcp.NewTool("compact_analyze",
+		mcp.WithDescription("Find solutions older than min_age_days eligible for compaction (memory decay). Returns full content so you can generate summaries. Default: 30 days."),
+		mcp.WithNumber("min_age_days", mcp.Description("Minimum age in days"), mcp.DefaultNumber(30)),
+	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		days := optInt(req, "min_age_days", 30)
+		candidates, err := retrieval.CompactAnalyze(days)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		db.LogAudit("", "", "compact_analyze", map[string]any{"min_age_days": days}, fmt.Sprintf("%d candidates", len(candidates)))
+		return textResult(map[string]any{
+			"candidates": candidates,
+			"count":      len(candidates),
+			"message":    fmt.Sprintf("Found %d solutions eligible for compaction. Generate a 1-2 sentence summary for each, then call compact_apply.", len(candidates)),
+		}), nil
+	})
+
+	// compact_apply — replace solution detail with a summary
+	s.AddTool(mcp.NewTool("compact_apply",
+		mcp.WithDescription("Replace a solution's detailed thoughts with a compressed summary. The original is archived and can be restored with compact_restore. Keeps the embedding intact for retrieval."),
+		mcp.WithString("solution_id", mcp.Required()),
+		mcp.WithString("summary", mcp.Required(), mcp.Description("1-2 sentence summary preserving the key insight")),
+	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		solID, _ := req.RequireString("solution_id")
+		summary, _ := req.RequireString("summary")
+		if err := retrieval.CompactApply(solID, summary); err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		db.LogAudit("", "", "compact_apply", map[string]any{"solution_id": solID}, "compacted")
+		return textResult(map[string]any{
+			"message":    "Solution compacted. Original archived.",
+			"solutionId": solID,
+			"note":       "Call compact_restore to undo if needed.",
+		}), nil
+	})
+
+	// compact_restore — undo compaction
+	s.AddTool(mcp.NewTool("compact_restore",
+		mcp.WithDescription("Restore a compacted solution to its original full content from the archive."),
+		mcp.WithString("solution_id", mcp.Required()),
+	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		solID, _ := req.RequireString("solution_id")
+		if err := retrieval.CompactRestore(solID); err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		db.LogAudit("", "", "compact_restore", map[string]any{"solution_id": solID}, "restored")
+		return textResult(map[string]any{"message": "Solution restored to original content.", "solutionId": solID}), nil
+	})
 }
 
 // ============================================================================
@@ -528,4 +587,71 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "..."
+}
+
+// ============================================================================
+// Knowledge tools (audit, links, suggest)
+// ============================================================================
+
+func registerKnowledgeTools(s *server.MCPServer) {
+	// link_trees — cross-tree dependency
+	s.AddTool(mcp.NewTool("link_trees",
+		mcp.WithDescription("Create a dependency or relationship between two trees. Use when insights from one analysis inform another."),
+		mcp.WithString("source_tree", mcp.Required(), mcp.Description("Tree that depends on or references the other")),
+		mcp.WithString("target_tree", mcp.Required(), mcp.Description("Tree being referenced")),
+		mcp.WithString("link_type", mcp.Description("depends_on, informs, supersedes, or related"), mcp.DefaultString("informs")),
+		mcp.WithString("note", mcp.Description("Why these trees are linked")),
+	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		src, _ := req.RequireString("source_tree")
+		tgt, _ := req.RequireString("target_tree")
+		lt := optString(req, "link_type", "informs")
+		note := optString(req, "note", "")
+
+		link, err := tree.LinkTrees(src, tgt, lt, note)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		db.LogAudit(src, "", "link_trees", map[string]any{"source": src, "target": tgt, "type": lt}, "linked")
+		return textResult(map[string]any{"message": "Trees linked.", "link": link}), nil
+	})
+
+	// get_tree_links — view cross-tree relationships
+	s.AddTool(mcp.NewTool("get_tree_links",
+		mcp.WithDescription("View all cross-tree dependencies and relationships for a tree."),
+		mcp.WithString("tree_id", mcp.Required()),
+	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		treeID, _ := req.RequireString("tree_id")
+		links, err := tree.GetTreeLinks(treeID)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return textResult(map[string]any{"treeId": treeID, "links": links, "count": len(links)}), nil
+	})
+
+	// suggest_next — zero-arg "what should I work on"
+	s.AddTool(mcp.NewTool("suggest_next",
+		mcp.WithDescription("What should I work on next? Returns the most promising active or paused tree. Call with no arguments when starting a new session or when the current task is done."),
+	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		result, err := tree.SuggestNextWork()
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		db.LogAudit("", "", "suggest_next", nil, result["action"].(string))
+		return textResult(result), nil
+	})
+
+	// audit_log — view the audit trail
+	s.AddTool(mcp.NewTool("audit_log",
+		mcp.WithDescription("View the audit trail of tool calls. Shows what happened, when, and on which tree/node. Use for debugging and decision tracing."),
+		mcp.WithString("tree_id", mcp.Description("Filter by tree (optional)")),
+		mcp.WithNumber("limit", mcp.Description("Number of entries"), mcp.DefaultNumber(20)),
+	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		treeID := optString(req, "tree_id", "")
+		limit := optInt(req, "limit", 20)
+		entries, err := db.GetAuditLog(treeID, limit)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return textResult(map[string]any{"entries": entries, "count": len(entries)}), nil
+	})
 }

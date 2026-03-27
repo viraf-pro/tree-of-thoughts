@@ -210,18 +210,119 @@ func keywordSearch(query string, limit int) ([]Result, error) {
 // Stats returns retrieval store stats.
 func Stats() map[string]any {
 	d := db.Get()
-	var total, withEmb int
+	var total, withEmb, compacted int
 	var avg float64
 	d.QueryRow(`SELECT COUNT(*) FROM solutions`).Scan(&total)
 	d.QueryRow(`SELECT COUNT(*) FROM solutions WHERE embedding IS NOT NULL`).Scan(&withEmb)
 	d.QueryRow(`SELECT COALESCE(AVG(score),0) FROM solutions`).Scan(&avg)
+	d.QueryRow(`SELECT COUNT(*) FROM solutions WHERE compacted=1`).Scan(&compacted)
 
 	return map[string]any{
-		"totalSolutions":       total,
-		"withEmbeddings":       withEmb,
-		"averageScore":         avg,
+		"totalSolutions":        total,
+		"withEmbeddings":        withEmb,
+		"compactedSolutions":    compacted,
+		"averageScore":          avg,
 		"vectorSearchAvailable": embeddings.Active(),
 	}
+}
+
+// --- Compaction (memory decay) ---
+
+// CompactCandidate is a solution eligible for compaction.
+type CompactCandidate struct {
+	ID        string   `json:"id"`
+	Problem   string   `json:"problem"`
+	Solution  string   `json:"solution"`
+	Thoughts  []string `json:"thoughts"`
+	Tags      []string `json:"tags"`
+	Score     float64  `json:"score"`
+	CreatedAt string   `json:"createdAt"`
+	AgeDays   int      `json:"ageDays"`
+}
+
+// CompactAnalyze finds solutions older than minAgeDays that haven't been compacted yet.
+// Returns candidates with full content so the LLM can generate summaries.
+func CompactAnalyze(minAgeDays int) ([]CompactCandidate, error) {
+	d := db.Get()
+	cutoff := time.Now().UTC().AddDate(0, 0, -minAgeDays).Format(time.RFC3339)
+
+	rows, err := d.Query(`SELECT id, problem, solution, thoughts, tags, score, created_at
+		FROM solutions WHERE compacted=0 AND created_at < ? ORDER BY created_at ASC`, cutoff)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []CompactCandidate
+	for rows.Next() {
+		var c CompactCandidate
+		var thoughtsStr, tagsStr string
+		rows.Scan(&c.ID, &c.Problem, &c.Solution, &thoughtsStr, &tagsStr, &c.Score, &c.CreatedAt)
+		json.Unmarshal([]byte(thoughtsStr), &c.Thoughts)
+		json.Unmarshal([]byte(tagsStr), &c.Tags)
+
+		created, _ := time.Parse(time.RFC3339, c.CreatedAt)
+		c.AgeDays = int(time.Since(created).Hours() / 24)
+		out = append(out, c)
+	}
+	return out, nil
+}
+
+// CompactApply replaces a solution's detailed thoughts with a summary.
+// Keeps the problem, solution (one-liner), tags, and embedding intact.
+// The original thoughts are archived in the solution_archive table.
+func CompactApply(solutionID, summary string) error {
+	d := db.Get()
+
+	// Get original data for archival
+	var origThoughts, origSolution string
+	err := d.QueryRow(`SELECT solution, thoughts FROM solutions WHERE id=?`, solutionID).Scan(&origSolution, &origThoughts)
+	if err != nil {
+		return err
+	}
+
+	ts := time.Now().UTC().Format(time.RFC3339)
+
+	tx, err := d.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Archive original content
+	tx.Exec(`INSERT OR REPLACE INTO solution_archive (solution_id, original_solution, original_thoughts, archived_at)
+		VALUES (?,?,?,?)`, solutionID, origSolution, origThoughts, ts)
+
+	// Replace with compacted version
+	compactedThoughts, _ := json.Marshal([]string{summary})
+	tx.Exec(`UPDATE solutions SET solution=?, thoughts=?, compacted=1 WHERE id=?`,
+		summary, string(compactedThoughts), solutionID)
+
+	return tx.Commit()
+}
+
+// CompactRestore restores a compacted solution to its original full content.
+func CompactRestore(solutionID string) error {
+	d := db.Get()
+
+	var origSolution, origThoughts string
+	err := d.QueryRow(`SELECT original_solution, original_thoughts FROM solution_archive WHERE solution_id=?`,
+		solutionID).Scan(&origSolution, &origThoughts)
+	if err != nil {
+		return err
+	}
+
+	tx, err := d.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	tx.Exec(`UPDATE solutions SET solution=?, thoughts=?, compacted=0 WHERE id=?`,
+		origSolution, origThoughts, solutionID)
+	tx.Exec(`DELETE FROM solution_archive WHERE solution_id=?`, solutionID)
+
+	return tx.Commit()
 }
 
 func hasOverlap(a, b []string) bool {

@@ -102,7 +102,15 @@ CREATE TABLE IF NOT EXISTS solutions (
 	score      REAL NOT NULL DEFAULT 0.0,
 	tags       TEXT NOT NULL DEFAULT '[]',
 	embedding  BLOB,
+	compacted  INTEGER NOT NULL DEFAULT 0,
 	created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS solution_archive (
+	solution_id       TEXT PRIMARY KEY REFERENCES solutions(id) ON DELETE CASCADE,
+	original_solution TEXT NOT NULL,
+	original_thoughts TEXT NOT NULL,
+	archived_at       TEXT NOT NULL
 );
 
 CREATE VIRTUAL TABLE IF NOT EXISTS solutions_fts USING fts5(
@@ -144,4 +152,26 @@ CREATE TABLE IF NOT EXISTS experiment_results (
 	created_at       TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_expr_tree ON experiment_results(tree_id);
+
+CREATE TABLE IF NOT EXISTS audit_log (
+	id         INTEGER PRIMARY KEY AUTOINCREMENT,
+	tree_id    TEXT,
+	node_id    TEXT,
+	tool       TEXT NOT NULL,
+	input      TEXT NOT NULL DEFAULT '{}',
+	result     TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_audit_tree ON audit_log(tree_id);
+
+CREATE TABLE IF NOT EXISTS tree_links (
+	id           TEXT PRIMARY KEY,
+	source_tree  TEXT NOT NULL REFERENCES trees(id) ON DELETE CASCADE,
+	target_tree  TEXT NOT NULL REFERENCES trees(id) ON DELETE CASCADE,
+	link_type    TEXT NOT NULL DEFAULT 'depends_on',
+	note         TEXT NOT NULL DEFAULT '',
+	created_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_links_source ON tree_links(source_tree);
+CREATE INDEX IF NOT EXISTS idx_links_target ON tree_links(target_tree);
 `
