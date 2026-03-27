@@ -223,20 +223,25 @@ func newLocalProvider(model string) (*LocalProvider, error) {
 		return nil, fmt.Errorf("cannot create model cache dir %s: %w", cacheDir, err)
 	}
 
+	// Download model from HuggingFace if not already cached
+	modelPath, err := hugot.DownloadModel(model, cacheDir, hugot.NewDownloadOptions())
+	if err != nil {
+		return nil, fmt.Errorf("hugot model download failed: %w", err)
+	}
+
 	// Initialize Hugot with pure Go backend (zero CGO)
-	session, err := hugot.NewSession(
-		hugot.WithPureGoBackend(),
-		hugot.WithCacheDir(cacheDir),
-	)
+	session, err := hugot.NewGoSession()
 	if err != nil {
 		return nil, fmt.Errorf("hugot session init failed: %w", err)
 	}
 
-	// Load or download the embedding model
-	pipeline, err := session.NewFeatureExtractionPipeline(
-		model,
-		pipelines.WithOutputName("last_hidden_state"),
-	)
+	// Load the embedding model
+	pipeline, err := hugot.NewPipeline(session, hugot.FeatureExtractionConfig{
+		ModelPath:    modelPath,
+		Name:         "tot-embedding",
+		OnnxFilename: "model.onnx",
+		Options:      []hugot.FeatureExtractionOption{pipelines.WithOutputName("last_hidden_state")},
+	})
 	if err != nil {
 		session.Destroy()
 		return nil, fmt.Errorf("hugot pipeline init for %s failed: %w", model, err)
@@ -265,39 +270,23 @@ func (p *LocalProvider) Embed(text string) ([]float32, error) {
 		return nil, fmt.Errorf("local embed returned empty result")
 	}
 
-	// Mean-pool and return the embedding vector.
-	// Hugot's FeatureExtractionPipeline returns token-level embeddings
-	// shaped [batch][tokens][dims]. We average across the token dimension.
-	tokenEmbeds := result.Embeddings[0] // first (only) input
-	if len(tokenEmbeds) == 0 {
-		return nil, fmt.Errorf("local embed: no token embeddings")
-	}
-
-	dims := len(tokenEmbeds[0])
-	pooled := make([]float32, dims)
-	for _, tok := range tokenEmbeds {
-		for d, v := range tok {
-			pooled[d] += v
-		}
-	}
-	n := float32(len(tokenEmbeds))
-	for d := range pooled {
-		pooled[d] /= n
-	}
+	// Hugot v0.5+ returns sentence-level embeddings (already mean-pooled).
+	// result.Embeddings is [][]float32 — one vector per input text.
+	embedding := result.Embeddings[0]
 
 	// L2 normalize for cosine similarity
 	var norm float64
-	for _, v := range pooled {
+	for _, v := range embedding {
 		norm += float64(v) * float64(v)
 	}
 	norm = math.Sqrt(norm)
 	if norm > 0 {
-		for d := range pooled {
-			pooled[d] = float32(float64(pooled[d]) / norm)
+		for d := range embedding {
+			embedding[d] = float32(float64(embedding[d]) / norm)
 		}
 	}
 
-	return pooled, nil
+	return embedding, nil
 }
 
 // Destroy cleans up the Hugot session. Call on graceful shutdown.

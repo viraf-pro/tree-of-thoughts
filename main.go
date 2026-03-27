@@ -131,7 +131,7 @@ func registerTreeTools(s *server.MCPServer) {
 	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		treeID, _ := req.RequireString("tree_id")
 		parentID, _ := req.RequireString("parent_id")
-		raw := req.Params.Arguments["thoughts"]
+		raw := req.GetArguments()["thoughts"]
 
 		thoughtsJSON, _ := json.Marshal(raw)
 		var items []struct {
@@ -166,7 +166,7 @@ func registerTreeTools(s *server.MCPServer) {
 		nodeID, _ := req.RequireString("node_id")
 		eval, _ := req.RequireString("evaluation")
 		var scorePtr *float64
-		if s, ok := req.Params.Arguments["score"]; ok {
+		if s, ok := req.GetArguments()["score"]; ok {
 			if v, ok := s.(float64); ok {
 				scorePtr = &v
 			}
@@ -358,7 +358,7 @@ func registerRetrievalTools(s *server.MCPServer) {
 		query, _ := req.RequireString("query")
 		topK := optInt(req, "top_k", 3)
 		var tags []string
-		if raw, ok := req.Params.Arguments["tags"]; ok {
+		if raw, ok := req.GetArguments()["tags"]; ok {
 			b, _ := json.Marshal(raw)
 			json.Unmarshal(b, &tags)
 		}
@@ -383,7 +383,7 @@ func registerRetrievalTools(s *server.MCPServer) {
 		treeID, _ := req.RequireString("tree_id")
 		solution, _ := req.RequireString("solution")
 		var tags []string
-		if raw, ok := req.Params.Arguments["tags"]; ok {
+		if raw, ok := req.GetArguments()["tags"]; ok {
 			b, _ := json.Marshal(raw)
 			json.Unmarshal(b, &tags)
 		}
@@ -497,7 +497,7 @@ func registerExperimentTools(s *server.MCPServer) {
 			LogFile:         optString(req, "log_file", "run.log"),
 			MemoryRegex:     optString(req, "memory_regex", ""),
 		}
-		if v, ok := req.Params.Arguments["baseline_metric"]; ok {
+		if v, ok := req.GetArguments()["baseline_metric"]; ok {
 			if f, ok := v.(float64); ok {
 				cfg.BaselineMetric = &f
 			}
@@ -565,7 +565,7 @@ func mustString(req mcp.CallToolRequest, key string) string {
 }
 
 func optString(req mcp.CallToolRequest, key, fallback string) string {
-	if v, ok := req.Params.Arguments[key]; ok {
+	if v, ok := req.GetArguments()[key]; ok {
 		if s, ok := v.(string); ok && s != "" {
 			return s
 		}
@@ -574,7 +574,7 @@ func optString(req mcp.CallToolRequest, key, fallback string) string {
 }
 
 func optInt(req mcp.CallToolRequest, key string, fallback int) int {
-	if v, ok := req.Params.Arguments[key]; ok {
+	if v, ok := req.GetArguments()[key]; ok {
 		if f, ok := v.(float64); ok {
 			return int(f)
 		}
