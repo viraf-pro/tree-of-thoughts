@@ -511,7 +511,7 @@ type RouteProblemResult struct {
 // or create a new one. It compares the problem text against all active
 // and paused trees using embedding similarity (if available) and keyword
 // overlap as a fallback.
-func RouteProblem(problem string, embedding []float32) (*RouteProblemResult, error) {
+func RouteProblem(problem string) (*RouteProblemResult, error) {
 	d := db.Get()
 
 	// Auto-pause stale trees first

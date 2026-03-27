@@ -426,7 +426,7 @@ func TestSetStatusInvalidTransition(t *testing.T) {
 // --- Routing tests ---
 
 func TestRouteProblemCreate(t *testing.T) {
-	result, err := RouteProblem("completely unique alien topic xyz123", nil)
+	result, err := RouteProblem("completely unique alien topic xyz123")
 	if err != nil {
 		t.Fatalf("RouteProblem: %v", err)
 	}
@@ -438,7 +438,7 @@ func TestRouteProblemCreate(t *testing.T) {
 func TestRouteProblemContinue(t *testing.T) {
 	CreateTree("optimize database query performance for slow reports", "bfs", 5, 3)
 
-	result, err := RouteProblem("optimize database query performance for slow dashboards", nil)
+	result, err := RouteProblem("optimize database query performance for slow dashboards")
 	if err != nil {
 		t.Fatalf("RouteProblem: %v", err)
 	}
@@ -562,7 +562,7 @@ func TestRouteProblemFallsBackToJaccard(t *testing.T) {
 	_ = tr
 
 	// Similar enough for Jaccard to match
-	result, err := RouteProblem("analyze production server memory usage issues", nil)
+	result, err := RouteProblem("analyze production server memory usage issues")
 	if err != nil {
 		t.Fatalf("RouteProblem: %v", err)
 	}

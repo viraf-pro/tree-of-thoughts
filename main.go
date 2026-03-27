@@ -295,7 +295,7 @@ func registerTreeTools(s *server.MCPServer) {
 	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		problem, _ := req.RequireString("problem")
 
-		result, err := tree.RouteProblem(problem, nil)
+		result, err := tree.RouteProblem(problem)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}

@@ -144,7 +144,7 @@ func cliShow(treeID string) {
 }
 
 func cliRoute(problem string) {
-	result, err := tree.RouteProblem(problem, nil)
+	result, err := tree.RouteProblem(problem)
 	if err != nil {
 		fatal(err.Error())
 	}
