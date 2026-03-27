@@ -65,6 +65,21 @@ func TestGetAuditLogAll(t *testing.T) {
 	}
 }
 
+func TestTreesEmbeddingColumn(t *testing.T) {
+	d := Get()
+	// Verify the embedding column exists by inserting a row with it
+	_, err := d.Exec(`INSERT INTO trees (id,problem,root_id,search_strategy,max_depth,branching_factor,status,embedding,created_at,updated_at)
+		VALUES ('emb-test','test','root-emb','bfs',5,3,'active',X'00000000','2024-01-01T00:00:00Z','2024-01-01T00:00:00Z')`)
+	if err != nil {
+		t.Fatalf("insert with embedding: %v", err)
+	}
+	var emb []byte
+	d.QueryRow(`SELECT embedding FROM trees WHERE id='emb-test'`).Scan(&emb)
+	if len(emb) != 4 {
+		t.Fatalf("embedding length: got %d, want 4", len(emb))
+	}
+}
+
 func TestAuditResultTruncation(t *testing.T) {
 	long := make([]byte, 1000)
 	for i := range long {

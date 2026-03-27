@@ -53,8 +53,13 @@ func Get() *sql.DB {
 }
 
 func migrate(d *sql.DB) error {
-	_, err := d.Exec(schema)
-	return err
+	if _, err := d.Exec(schema); err != nil {
+		return err
+	}
+	// Additive migrations for existing databases.
+	// ALTER TABLE fails silently if column already exists (CREATE TABLE IF NOT EXISTS already added it).
+	d.Exec(`ALTER TABLE trees ADD COLUMN embedding BLOB`)
+	return nil
 }
 
 const schema = `
@@ -67,7 +72,8 @@ CREATE TABLE IF NOT EXISTS trees (
 	branching_factor INTEGER NOT NULL DEFAULT 3,
 	status           TEXT NOT NULL DEFAULT 'active',
 	created_at       TEXT NOT NULL,
-	updated_at       TEXT NOT NULL
+	updated_at       TEXT NOT NULL,
+	embedding        BLOB
 );
 
 CREATE TABLE IF NOT EXISTS nodes (
