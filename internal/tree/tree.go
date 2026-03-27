@@ -8,6 +8,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/tot-mcp/tot-mcp-go/internal/db"
+	"github.com/tot-mcp/tot-mcp-go/internal/embeddings"
+	"github.com/tot-mcp/tot-mcp-go/internal/encoding"
 )
 
 // Node represents a single thought in the tree.
@@ -35,6 +37,7 @@ type Tree struct {
 	Status          string `json:"status"`
 	CreatedAt       string `json:"createdAt"`
 	UpdatedAt       string `json:"updatedAt"`
+	Embedding       []byte `json:"-"` // not serialized to JSON (internal use only)
 }
 
 // PathResult holds a path from root to a node.
@@ -55,14 +58,22 @@ func CreateTree(problem, strategy string, maxDepth, branchingFactor int) (*Tree,
 	rootID := uuid.NewString()
 	ts := now()
 
+	var embBlob []byte
+	if embeddings.Active() {
+		vec, err := embeddings.Get().Embed(problem)
+		if err == nil && len(vec) > 0 {
+			embBlob = encoding.Float32ToBytes(vec)
+		}
+	}
+
 	tx, err := d.Begin()
 	if err != nil {
 		return nil, nil, err
 	}
 	defer tx.Rollback()
 
-	_, err = tx.Exec(`INSERT INTO trees (id,problem,root_id,search_strategy,max_depth,branching_factor,status,created_at,updated_at)
-		VALUES (?,?,?,?,?,?,'active',?,?)`, treeID, problem, rootID, strategy, maxDepth, branchingFactor, ts, ts)
+	_, err = tx.Exec(`INSERT INTO trees (id,problem,root_id,search_strategy,max_depth,branching_factor,status,embedding,created_at,updated_at)
+		VALUES (?,?,?,?,?,?,'active',?,?,?)`, treeID, problem, rootID, strategy, maxDepth, branchingFactor, embBlob, ts, ts)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -91,19 +102,21 @@ func CreateTree(problem, strategy string, maxDepth, branchingFactor int) (*Tree,
 func GetTree(treeID string) (*Tree, error) {
 	d := db.Get()
 	t := &Tree{}
-	err := d.QueryRow(`SELECT id,problem,root_id,search_strategy,max_depth,branching_factor,status,created_at,updated_at
+	var emb []byte
+	err := d.QueryRow(`SELECT id,problem,root_id,search_strategy,max_depth,branching_factor,status,embedding,created_at,updated_at
 		FROM trees WHERE id=?`, treeID).Scan(
-		&t.ID, &t.Problem, &t.RootID, &t.SearchStrategy, &t.MaxDepth, &t.BranchingFactor, &t.Status, &t.CreatedAt, &t.UpdatedAt)
+		&t.ID, &t.Problem, &t.RootID, &t.SearchStrategy, &t.MaxDepth, &t.BranchingFactor, &t.Status, &emb, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
+	t.Embedding = emb
 	return t, nil
 }
 
 // ListTrees returns all trees.
 func ListTrees() ([]Tree, error) {
 	d := db.Get()
-	rows, err := d.Query(`SELECT id,problem,root_id,search_strategy,max_depth,branching_factor,status,created_at,updated_at
+	rows, err := d.Query(`SELECT id,problem,root_id,search_strategy,max_depth,branching_factor,status,embedding,created_at,updated_at
 		FROM trees ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
@@ -112,7 +125,9 @@ func ListTrees() ([]Tree, error) {
 	var out []Tree
 	for rows.Next() {
 		var t Tree
-		rows.Scan(&t.ID, &t.Problem, &t.RootID, &t.SearchStrategy, &t.MaxDepth, &t.BranchingFactor, &t.Status, &t.CreatedAt, &t.UpdatedAt)
+		var emb []byte
+		rows.Scan(&t.ID, &t.Problem, &t.RootID, &t.SearchStrategy, &t.MaxDepth, &t.BranchingFactor, &t.Status, &emb, &t.CreatedAt, &t.UpdatedAt)
+		t.Embedding = emb
 		out = append(out, t)
 	}
 	return out, nil

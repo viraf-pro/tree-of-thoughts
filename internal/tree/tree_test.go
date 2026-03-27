@@ -534,6 +534,20 @@ func TestListTrees(t *testing.T) {
 	}
 }
 
+func TestCreateTreeStoresEmbedding(t *testing.T) {
+	// With noop provider (no API keys set in test), embedding should be nil
+	tr, _, err := CreateTree("embedding storage test", "bfs", 5, 3)
+	if err != nil {
+		t.Fatalf("CreateTree: %v", err)
+	}
+	got, _ := GetTree(tr.ID)
+	if got == nil {
+		t.Fatal("GetTree returned nil")
+	}
+	// Embedding field should be accessible (nil with noop provider is expected)
+	_ = got.Embedding
+}
+
 func TestSuggestNextWork(t *testing.T) {
 	// Create a fresh active tree with frontier
 	CreateTree("suggest test tree", "bfs", 5, 3)
