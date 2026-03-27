@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/google/uuid"
@@ -517,7 +518,7 @@ func RouteProblem(problem string, embedding []float32) (*RouteProblemResult, err
 	AutoPause(30)
 
 	// Get all non-abandoned, non-solved trees
-	rows, err := d.Query(`SELECT id, problem, status, updated_at FROM trees
+	rows, err := d.Query(`SELECT id, problem, status, updated_at, embedding FROM trees
 		WHERE status IN ('active', 'paused') ORDER BY updated_at DESC LIMIT 20`)
 	if err != nil {
 		return nil, err
@@ -526,11 +527,12 @@ func RouteProblem(problem string, embedding []float32) (*RouteProblemResult, err
 
 	type candidate struct {
 		id, problem, status, updatedAt string
+		embedding                      []byte
 	}
 	var candidates []candidate
 	for rows.Next() {
 		var c candidate
-		rows.Scan(&c.id, &c.problem, &c.status, &c.updatedAt)
+		rows.Scan(&c.id, &c.problem, &c.status, &c.updatedAt, &c.embedding)
 		candidates = append(candidates, c)
 	}
 
@@ -541,21 +543,50 @@ func RouteProblem(problem string, embedding []float32) (*RouteProblemResult, err
 		}, nil
 	}
 
-	// Score each candidate by keyword overlap (always available)
+	// Score each candidate using embedding similarity + keyword overlap
 	bestIdx := -1
 	bestScore := 0.0
 
+	// Embed the incoming problem if provider is active
+	var queryVec []float32
+	if embeddings.Active() {
+		queryVec, _ = embeddings.Get().Embed(problem)
+	}
+
 	problemWords := tokenize(problem)
 	for i, c := range candidates {
+		// Keyword score (always available)
 		candidateWords := tokenize(c.problem)
-		score := jaccardSimilarity(problemWords, candidateWords)
+		kwScore := jaccardSimilarity(problemWords, candidateWords)
+
+		// Embedding score (when both vectors are available)
+		var embScore float64
+		if len(queryVec) > 0 && len(c.embedding) > 0 {
+			storedVec := encoding.BytesToFloat32(c.embedding)
+			embScore = embeddings.CosineSimilarity(queryVec, storedVec)
+		}
+
+		// Combined score: use embedding as primary when available
+		var score float64
+		if embScore > 0 && kwScore > 0 {
+			// Both signals agree — hybrid boost (20%)
+			score = math.Max(embScore, kwScore) * 1.2
+			if score > 1.0 {
+				score = 1.0
+			}
+		} else if embScore > 0 {
+			score = embScore
+		} else {
+			score = kwScore
+		}
+
 		if score > bestScore {
 			bestScore = score
 			bestIdx = i
 		}
 	}
 
-	// Threshold: 0.3 jaccard overlap = "same topic"
+	// Threshold: 0.3 similarity = "same topic"
 	if bestIdx >= 0 && bestScore >= 0.3 {
 		c := candidates[bestIdx]
 		nc := NodeCount(c.id)
@@ -566,7 +597,7 @@ func RouteProblem(problem string, embedding []float32) (*RouteProblemResult, err
 			Status:     c.status,
 			NodeCount:  nc,
 			Similarity: bestScore,
-			Reason:     fmt.Sprintf("Existing tree matches (%.0f%% keyword overlap). Resume instead of creating a new tree.", bestScore*100),
+			Reason:     fmt.Sprintf("Existing tree matches (%.0f%% similarity). Resume instead of creating a new tree.", bestScore*100),
 		}, nil
 	}
 

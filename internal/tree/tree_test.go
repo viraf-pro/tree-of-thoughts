@@ -548,6 +548,29 @@ func TestCreateTreeStoresEmbedding(t *testing.T) {
 	_ = got.Embedding
 }
 
+func TestRouteProblemFallsBackToJaccard(t *testing.T) {
+	// With noop provider, embedding path is skipped, Jaccard is used
+
+	// Abandon all existing trees so they don't interfere with LIMIT 20
+	d := db.Get()
+	d.Exec(`UPDATE trees SET status='abandoned' WHERE status IN ('active','paused')`)
+
+	tr, _, err := CreateTree("analyze production server memory usage patterns", "bfs", 5, 3)
+	if err != nil {
+		t.Fatalf("CreateTree: %v", err)
+	}
+	_ = tr
+
+	// Similar enough for Jaccard to match
+	result, err := RouteProblem("analyze production server memory usage issues", nil)
+	if err != nil {
+		t.Fatalf("RouteProblem: %v", err)
+	}
+	if result.Action != "continue" {
+		t.Fatalf("expected continue for similar problem, got %q (similarity: %f)", result.Action, result.Similarity)
+	}
+}
+
 func TestSuggestNextWork(t *testing.T) {
 	// Create a fresh active tree with frontier
 	CreateTree("suggest test tree", "bfs", 5, 3)
