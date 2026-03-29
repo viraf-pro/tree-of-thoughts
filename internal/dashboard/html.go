@@ -52,6 +52,23 @@ h1{font-size:18px;font-weight:500;margin-bottom:4px}
 .sol-text{font-size:13px;color:var(--tx);line-height:1.6;white-space:pre-wrap;word-break:break-word}
 .sol-tags{margin-top:8px;display:flex;flex-wrap:wrap;gap:4px}
 .sol-tag{font-size:10px;padding:2px 6px;border-radius:4px;background:var(--bg3);color:var(--tx2)}
+.path-card{border:0.5px solid var(--bd);border-radius:var(--radius);margin-bottom:10px;overflow:hidden}
+.path-header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;cursor:pointer;transition:background .15s}
+.path-header:hover{background:var(--bg2)}
+.path-rank{font-size:13px;font-weight:600;min-width:32px}
+.path-summary{flex:1;font-size:13px;margin:0 12px}
+.path-score{font-family:var(--mono);font-size:12px;padding:2px 8px;border-radius:var(--radius);background:var(--bg2);color:var(--tx2)}
+.path-body{display:none;padding:0 16px 16px}
+.path-body.open{display:block}
+.path-step{position:relative;padding:12px 16px 12px 32px;margin-bottom:0}
+.path-step:not(:last-child){border-left:2px solid var(--bd);margin-left:8px}
+.path-step:last-child{border-left:2px solid var(--green);margin-left:8px}
+.path-depth{position:absolute;left:-6px;top:12px;width:14px;height:14px;border-radius:50%;border:2px solid var(--bd);background:var(--bg);font-size:0}
+.path-step:last-child .path-depth{border-color:var(--green);background:var(--green)}
+.path-step-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+.path-step-label{font-size:11px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:0.3px}
+.path-step-score{font-family:var(--mono);font-size:11px;color:var(--tx2)}
+.path-step-text{font-size:13px;line-height:1.6;color:var(--tx);white-space:pre-wrap;word-break:break-word}
 .tree-svg{width:100%;overflow-x:auto}
 .node-rect{cursor:pointer;transition:opacity .15s}
 .node-rect:hover{opacity:0.85}
@@ -202,6 +219,43 @@ async function renderTreeDetail() {
     }
     html += '</div>';
     html += '</div>';
+  }
+
+  // Reasoning paths — full analysis for each explored branch
+  const paths = buildPaths(nodes);
+  if (paths.length > 0) {
+    html += '<div class="section">Reasoning paths ('+paths.length+' explored)</div>';
+    for (let pi = 0; pi < paths.length; pi++) {
+      const p = paths[pi];
+      const leaf = p.steps[p.steps.length - 1];
+      const isSolution = leaf.isTerminal;
+      const avgScore = p.steps.reduce((s,n) => s+n.score, 0) / p.steps.length;
+      const summaryText = p.steps.slice(1).map(s => trunc(s.thought,50)).join(' → ');
+
+      html += '<div class="path-card">';
+      html += '<div class="path-header" onclick="togglePath('+pi+')">';
+      html += '<span class="path-rank">#'+(pi+1)+(isSolution?' ★':'')+'</span>';
+      html += '<span class="path-summary">'+esc(summaryText)+'</span>';
+      html += '<span class="path-score">avg '+avgScore.toFixed(2)+'</span>';
+      html += '</div>';
+      html += '<div class="path-body" id="path-'+pi+'">';
+
+      const depthLabels = ['Problem', 'Approach', 'Implementation', 'Analysis', 'Detail'];
+      for (let si = 0; si < p.steps.length; si++) {
+        const step = p.steps[si];
+        const label = depthLabels[si] || ('Depth '+si);
+        const ev = step.evaluation || 'unexplored';
+        html += '<div class="path-step">';
+        html += '<div class="path-depth"></div>';
+        html += '<div class="path-step-header">';
+        html += '<span class="path-step-label">'+label+' (d'+step.depth+')</span>';
+        html += '<span class="path-step-score">'+ev+' '+step.score.toFixed(2)+'</span>';
+        html += '</div>';
+        html += '<div class="path-step-text">'+esc(step.thought)+'</div>';
+        html += '</div>';
+      }
+      html += '</div></div>';
+    }
   }
 
   // Metric chart
@@ -374,6 +428,33 @@ function getNodeThought(nodes, nodeId) {
 
 function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function trunc(s, n) { return (s||'').length <= n ? (s||'') : (s||'').slice(0,n)+'...'; }
+
+function buildPaths(nodes) {
+  if (!nodes || nodes.length === 0) return [];
+  const byId = {}; nodes.forEach(n => byId[n.id] = n);
+  const childIds = new Set(); nodes.forEach(n => { if (n.parentId) childIds.add(n.parentId); });
+  // Leaves: nodes with no children, not impossible
+  const leaves = nodes.filter(n => !childIds.has(n.id) && n.evaluation !== 'impossible');
+  // Build path from each leaf to root
+  const paths = leaves.map(leaf => {
+    const steps = [];
+    let cur = leaf;
+    while (cur) { steps.unshift(cur); cur = cur.parentId ? byId[cur.parentId] : null; }
+    const avg = steps.reduce((s,n) => s+n.score, 0) / steps.length;
+    return { steps, avgScore: avg, isSolution: leaf.isTerminal };
+  });
+  // Sort: solutions first, then by avg score desc
+  paths.sort((a,b) => {
+    if (a.isSolution !== b.isSolution) return a.isSolution ? -1 : 1;
+    return b.avgScore - a.avgScore;
+  });
+  return paths;
+}
+
+function togglePath(idx) {
+  const el = document.getElementById('path-'+idx);
+  if (el) el.classList.toggle('open');
+}
 
 window.addEventListener('hashchange', render);
 render();
