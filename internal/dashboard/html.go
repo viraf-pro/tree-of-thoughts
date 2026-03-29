@@ -7,6 +7,7 @@ const indexHTML = `<!DOCTYPE html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ToT Dashboard</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{--bg:#fff;--bg2:#f5f4f0;--bg3:#eae9e5;--tx:#1a1a1a;--tx2:#6b6a65;--tx3:#9c9a92;--bd:#dddcd7;--blue:#378ADD;--green:#639922;--amber:#BA7517;--red:#E24B4A;--gray:#888780;--purple:#7F77DD;--teal:#1D9E75;--radius:8px;--mono:'SF Mono',Consolas,'Liberation Mono',Menlo,monospace;--sans:system-ui,-apple-system,sans-serif}
@@ -69,6 +70,26 @@ h1{font-size:18px;font-weight:500;margin-bottom:4px}
 .path-step-label{font-size:11px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:0.3px}
 .path-step-score{font-family:var(--mono);font-size:11px;color:var(--tx2)}
 .path-step-text{font-size:13px;line-height:1.6;color:var(--tx);white-space:pre-wrap;word-break:break-word}
+.radial-tree-wrap{position:relative;overflow:hidden;border-radius:var(--radius)}
+.radial-tree-wrap svg{display:block;width:100%;cursor:grab}
+.radial-tree-wrap svg:active{cursor:grabbing}
+.radial-tree-wrap .link{fill:none;stroke:var(--tx3);stroke-width:1}
+.radial-tree-wrap .link-best{stroke:var(--green);stroke-width:2.5}
+.radial-tree-wrap .node-circle{cursor:pointer;stroke-width:2;transition:r .2s}
+.radial-tree-wrap .node-circle:hover{r:9}
+.radial-tree-wrap .node-label{font-size:11px;fill:var(--tx);pointer-events:none}
+.radial-tree-wrap .node-score{font-size:9px;font-family:var(--mono);fill:var(--tx2);pointer-events:none}
+.node-panel{position:fixed;top:0;right:-420px;width:420px;height:100vh;background:var(--bg);border-left:1px solid var(--bd);box-shadow:-4px 0 20px rgba(0,0,0,.1);z-index:100;transition:right .3s ease;overflow-y:auto;padding:24px}
+.node-panel.open{right:0}
+.node-panel-close{position:absolute;top:16px;right:16px;font-size:20px;cursor:pointer;color:var(--tx2);background:none;border:none;line-height:1}
+.node-panel-close:hover{color:var(--tx)}
+.node-panel h2{font-size:16px;font-weight:600;margin-bottom:16px;padding-right:32px}
+.node-panel-path-step{padding:12px 0;border-bottom:1px solid var(--bd)}
+.node-panel-path-step:last-child{border-bottom:none}
+.node-panel-depth{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--tx2);margin-bottom:4px}
+.node-panel-eval{display:inline-block;font-size:10px;padding:1px 6px;border-radius:4px;margin-left:8px;font-weight:500}
+.node-panel-thought{font-size:13px;line-height:1.65;color:var(--tx);white-space:pre-wrap;word-break:break-word;margin-top:6px}
+.node-panel-current{background:var(--bg2);border-radius:var(--radius);padding:12px;margin:-4px -4px -4px -4px}
 .tree-svg{width:100%;overflow-x:auto}
 .node-rect{cursor:pointer;transition:opacity .15s}
 .node-rect:hover{opacity:0.85}
@@ -162,8 +183,8 @@ async function renderTreeDetail() {
     html += '</div>';
   }
 
-  // Tree visualization
-  html += '<div class="section">Reasoning tree</div>';
+  // Tree visualization — D3 radial tree
+  html += '<div class="section">Reasoning tree — click any node to explore its path</div>';
   html += '<div class="card-border">';
   html += '<div class="legend">';
   html += '<span><i style="background:'+COLORS.sure+'"></i> Sure</span>';
@@ -172,8 +193,9 @@ async function renderTreeDetail() {
   html += '<span><i style="background:'+COLORS.solution+'"></i> Solution</span>';
   html += '<span><i style="background:'+COLORS.unexplored+'"></i> Unexplored</span>';
   html += '</div>';
-  html += buildTreeSVG(nodes, bestPath);
+  html += '<div class="radial-tree-wrap" id="radial-tree"></div>';
   html += '</div>';
+  html += '<div class="node-panel" id="node-panel"></div>';
 
   // Experiments + Retrieval side by side (or just retrieval if no experiments)
   const showExps = exps.length > 0;
@@ -266,113 +288,170 @@ async function renderTreeDetail() {
 
   app.innerHTML = html;
 
+  // Render D3 radial tree after DOM is ready
+  if (nodes && nodes.length > 0) {
+    renderRadialTree(nodes, bestPath);
+  }
+
   // Render chart after DOM is ready
   if (exps.length > 1) {
     renderChart(exps, nodes);
   }
 }
 
-function buildTreeSVG(nodes, bestPath) {
-  if (!nodes || nodes.length === 0) return '<div style="padding:20px;color:var(--tx2);text-align:center">No nodes yet</div>';
-
-  // Build parent-child map
-  const childMap = {};
-  const nodeMap = {};
-  for (const n of nodes) {
-    nodeMap[n.id] = n;
-    if (n.parentId) {
-      if (!childMap[n.parentId]) childMap[n.parentId] = [];
-      childMap[n.parentId].push(n.id);
-    }
+function renderRadialTree(nodes, bestPath) {
+  const container = document.getElementById('radial-tree');
+  if (!container || !nodes || nodes.length === 0) {
+    if (container) container.innerHTML = '<div style="padding:20px;color:var(--tx2);text-align:center">No nodes yet</div>';
+    return;
   }
 
-  // Find root
+  // Build hierarchy data for D3
+  const byId = {}; nodes.forEach(n => byId[n.id] = n);
   const root = nodes.find(n => !n.parentId);
-  if (!root) return '';
+  if (!root) return;
 
-  // Layout: assign x,y per node (simple layered tree)
-  const positions = {};
-  const NODE_W = 160, NODE_H = 50, GAP_X = 20, GAP_Y = 80;
-
-  // Count leaves per subtree for width allocation
-  function countLeaves(id) {
-    const children = childMap[id] || [];
-    if (children.length === 0) return 1;
-    return children.reduce((s, c) => s + countLeaves(c), 0);
+  function buildHierarchy(node) {
+    const children = nodes.filter(n => n.parentId === node.id);
+    const result = { ...node, children: children.map(c => buildHierarchy(c)) };
+    if (result.children.length === 0) delete result.children;
+    return result;
   }
 
-  function layout(id, x, y, widthBudget) {
-    const children = childMap[id] || [];
-    const cx = x + widthBudget / 2;
-    positions[id] = { x: cx, y };
+  const data = buildHierarchy(root);
+  const hierRoot = d3.hierarchy(data);
 
-    if (children.length === 0) return;
-    const totalLeaves = children.reduce((s, c) => s + countLeaves(c), 0);
-    let offset = x;
-    for (const cid of children) {
-      const cLeaves = countLeaves(cid);
-      const cWidth = (cLeaves / totalLeaves) * widthBudget;
-      layout(cid, offset, y + GAP_Y + NODE_H, cWidth);
-      offset += cWidth;
-    }
+  // Sizing
+  const nodeCount = hierRoot.descendants().length;
+  const radius = Math.max(200, Math.min(380, nodeCount * 28));
+  const w = radius * 2 + 160;
+  const h = w;
+
+  container.innerHTML = '';
+  const svg = d3.select(container).append('svg')
+    .attr('viewBox', [-w/2, -h/2, w, h].join(' '))
+    .attr('width', '100%')
+    .style('min-height', '420px')
+    .style('max-height', '640px');
+
+  // Enable pan + zoom
+  const g = svg.append('g');
+  svg.call(d3.zoom().scaleExtent([0.3, 3]).on('zoom', (e) => g.attr('transform', e.transform)));
+
+  // Radial tree layout
+  const tree = d3.tree()
+    .size([2 * Math.PI, radius])
+    .separation((a, b) => (a.parent === b.parent ? 1 : 2) / a.depth || 1);
+  tree(hierRoot);
+
+  // Radial point helper
+  function radialPoint(x, y) {
+    return [(y = +y) * Math.cos(x -= Math.PI / 2), y * Math.sin(x)];
   }
 
-  const totalLeaves = countLeaves(root.id);
-  const svgW = Math.max(680, totalLeaves * (NODE_W + GAP_X));
-  const maxDepth = Math.max(...nodes.map(n => n.depth));
-  const svgH = (maxDepth + 1) * (NODE_H + GAP_Y) + 60;
+  // Draw links
+  g.append('g').selectAll('path')
+    .data(hierRoot.links())
+    .join('path')
+    .attr('class', d => {
+      const sid = d.source.data.id, tid = d.target.data.id;
+      return bestPath.has(sid) && bestPath.has(tid) ? 'link link-best' : 'link';
+    })
+    .attr('d', d3.linkRadial().angle(d => d.x).radius(d => d.y));
 
-  layout(root.id, 20, 20, svgW - 40);
+  // Draw nodes
+  const nodeG = g.append('g').selectAll('g')
+    .data(hierRoot.descendants())
+    .join('g')
+    .attr('transform', d => 'translate(' + radialPoint(d.x, d.y).join(',') + ')');
 
-  // Build SVG
-  let svg = '<svg class="tree-svg" viewBox="0 0 '+svgW+' '+svgH+'" xmlns="http://www.w3.org/2000/svg">';
+  // Node circles
+  nodeG.append('circle')
+    .attr('class', 'node-circle')
+    .attr('r', d => d.data.isTerminal ? 9 : (d.data.depth === 0 ? 8 : 6))
+    .attr('fill', d => {
+      if (d.data.isTerminal) return COLORS.solution;
+      if (d.data.evaluation === 'sure') return COLORS.sure;
+      if (d.data.evaluation === 'maybe') return COLORS.maybe;
+      if (d.data.evaluation === 'impossible') return COLORS.impossible;
+      return COLORS.unexplored;
+    })
+    .attr('stroke', d => bestPath.has(d.data.id) ? COLORS.solution : 'var(--bg)')
+    .attr('stroke-width', d => bestPath.has(d.data.id) ? 3 : 2)
+    .on('click', (event, d) => {
+      event.stopPropagation();
+      showNodePanel(d.data, byId);
+    });
 
-  // Edges
-  for (const n of nodes) {
-    if (n.parentId && positions[n.id] && positions[n.parentId]) {
-      const p = positions[n.parentId];
-      const c = positions[n.id];
-      const isBest = bestPath.has(n.id) && bestPath.has(n.parentId);
-      const stroke = isBest ? COLORS.solution : 'var(--tx3)';
-      const width = isBest ? 2 : 0.5;
-      svg += '<line x1="'+p.x+'" y1="'+(p.y+NODE_H)+'" x2="'+c.x+'" y2="'+c.y+'" stroke="'+stroke+'" stroke-width="'+width+'"/>';
-    }
+  // Node labels (first few words of thought)
+  nodeG.append('text')
+    .attr('class', 'node-label')
+    .attr('dy', '0.31em')
+    .attr('x', d => d.x < Math.PI === !d.children ? 8 : -8)
+    .attr('text-anchor', d => d.x < Math.PI === !d.children ? 'start' : 'end')
+    .attr('transform', d => {
+      const angle = d.x * 180 / Math.PI;
+      return 'rotate(' + (angle < 180 ? angle - 90 : angle + 90) + ')';
+    })
+    .text(d => {
+      const t = d.data.thought || '';
+      const first = t.split(/[.:(\n]/, 1)[0];
+      return trunc(first, 28);
+    });
+
+  // Score labels
+  nodeG.filter(d => d.data.score > 0)
+    .append('text')
+    .attr('class', 'node-score')
+    .attr('dy', '-10')
+    .attr('text-anchor', 'middle')
+    .text(d => d.data.score.toFixed(2));
+
+  // Click background to close panel
+  svg.on('click', () => closeNodePanel());
+}
+
+function showNodePanel(node, byId) {
+  const panel = document.getElementById('node-panel');
+  if (!panel) return;
+
+  // Walk path from this node to root
+  const steps = [];
+  let cur = node;
+  while (cur) {
+    steps.unshift(cur);
+    cur = cur.parentId ? byId[cur.parentId] : null;
   }
 
-  // Nodes
-  for (const n of nodes) {
-    const pos = positions[n.id];
-    if (!pos) continue;
-    const rx = pos.x - NODE_W/2;
-    const ry = pos.y;
+  const depthLabels = ['Problem', 'Approach', 'Implementation', 'Analysis', 'Detail'];
+  const evalColors = { sure: COLORS.sure, maybe: COLORS.maybe, impossible: COLORS.impossible };
 
-    let fill, stroke;
-    if (n.isTerminal) { fill = '#eaf3de'; stroke = COLORS.solution; }
-    else if (n.evaluation === 'sure') { fill = '#e6f1fb'; stroke = COLORS.sure; }
-    else if (n.evaluation === 'maybe') { fill = '#faeeda'; stroke = COLORS.maybe; }
-    else if (n.evaluation === 'impossible') { fill = '#fcebeb'; stroke = COLORS.impossible; }
-    else { fill = 'var(--bg2)'; stroke = 'var(--bd)'; }
+  let html = '<button class="node-panel-close" onclick="closeNodePanel()">&times;</button>';
+  html += '<h2>Path to: ' + esc(steps[steps.length-1].thought.split(/[.:]/,1)[0]) + '</h2>';
 
-    const isDark = matchMedia('(prefers-color-scheme:dark)').matches;
-    if (isDark) {
-      if (n.isTerminal) fill = '#27500a';
-      else if (n.evaluation === 'sure') fill = '#0c447c';
-      else if (n.evaluation === 'maybe') fill = '#633806';
-      else if (n.evaluation === 'impossible') fill = '#501313';
-    }
+  for (let i = 0; i < steps.length; i++) {
+    const s = steps[i];
+    const label = depthLabels[i] || ('Depth ' + i);
+    const ev = s.evaluation || 'unexplored';
+    const isCurrent = (s.id === node.id);
+    const evColor = evalColors[ev] || 'var(--tx3)';
 
-    const dashed = (!n.evaluation && !n.isTerminal && n.depth > 0) ? ' stroke-dasharray="4 4"' : '';
-    svg += '<g class="node-rect">';
-    svg += '<rect x="'+rx+'" y="'+ry+'" width="'+NODE_W+'" height="'+NODE_H+'" rx="6" fill="'+fill+'" stroke="'+stroke+'" stroke-width="'+(bestPath.has(n.id)?1.5:0.5)+'"'+dashed+'/>';
-    svg += '<text x="'+pos.x+'" y="'+(ry+18)+'" text-anchor="middle" font-size="12" font-weight="500" fill="var(--tx)">'+esc(trunc(n.thought,20))+'</text>';
-    if (n.score > 0) {
-      svg += '<text x="'+pos.x+'" y="'+(ry+36)+'" text-anchor="middle" font-size="11" fill="var(--tx2)">'+n.score.toFixed(3)+'</text>';
-    }
-    svg += '</g>';
+    html += '<div class="node-panel-path-step">';
+    html += '<div class="node-panel-depth">' + label + ' (d' + s.depth + ')';
+    html += '<span class="node-panel-eval" style="background:' + evColor + '22;color:' + evColor + '">' + ev + ' ' + s.score.toFixed(2) + '</span>';
+    if (s.isTerminal) html += '<span class="node-panel-eval" style="background:' + COLORS.solution + '22;color:' + COLORS.solution + '">solution</span>';
+    html += '</div>';
+    html += '<div class="node-panel-thought' + (isCurrent ? ' node-panel-current' : '') + '">' + esc(s.thought) + '</div>';
+    html += '</div>';
   }
 
-  svg += '</svg>';
-  return '<div style="overflow-x:auto">'+svg+'</div>';
+  panel.innerHTML = html;
+  panel.classList.add('open');
+}
+
+function closeNodePanel() {
+  const panel = document.getElementById('node-panel');
+  if (panel) panel.classList.remove('open');
 }
 
 function renderChart(exps, nodes) {
