@@ -589,8 +589,8 @@ func RouteProblem(problem string) (*RouteProblemResult, error) {
 
 		// Combined score: use embedding as primary when available
 		var score float64
-		if embScore > 0 && kwScore > 0 {
-			// Both signals agree — hybrid boost (20%)
+		if embScore >= 0.2 && kwScore >= 0.15 {
+			// Both signals meaningfully positive — hybrid boost (20%)
 			score = math.Max(embScore, kwScore) * 1.2
 			if score > 1.0 {
 				score = 1.0
