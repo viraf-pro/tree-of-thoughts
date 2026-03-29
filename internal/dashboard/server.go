@@ -212,9 +212,15 @@ func handleRetrieval(w http.ResponseWriter, r *http.Request) {
 	var problem string
 	d.QueryRow(`SELECT problem FROM trees WHERE id=?`, treeID).Scan(&problem)
 
-	// Get all solutions (we'll show them as potential context)
-	rows, _ := d.Query(`SELECT id, problem, solution, thoughts, score, tags, (embedding IS NOT NULL) as has_emb, created_at
-		FROM solutions ORDER BY created_at DESC LIMIT 20`)
+	// Get solutions filtered by tree, or all if no tree specified
+	var rows *sql.Rows
+	if treeID != "" {
+		rows, _ = d.Query(`SELECT id, problem, solution, thoughts, score, tags, (embedding IS NOT NULL) as has_emb, created_at
+			FROM solutions WHERE tree_id=? ORDER BY created_at DESC LIMIT 20`, treeID)
+	} else {
+		rows, _ = d.Query(`SELECT id, problem, solution, thoughts, score, tags, (embedding IS NOT NULL) as has_emb, created_at
+			FROM solutions ORDER BY created_at DESC LIMIT 20`)
+	}
 	defer rows.Close()
 
 	var sols []map[string]any
