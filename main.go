@@ -635,7 +635,8 @@ func registerKnowledgeTools(s *server.MCPServer) {
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		db.LogAudit("", "", "suggest_next", nil, result["action"].(string))
+		action, _ := result["action"].(string)
+		db.LogAudit("", "", "suggest_next", nil, action)
 		return textResult(result), nil
 	})
 
