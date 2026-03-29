@@ -105,7 +105,9 @@ func vectorSearch(query string, limit int) ([]Result, error) {
 	}
 
 	d := db.Get()
-	rows, err := d.Query(`SELECT id,problem,solution,thoughts,score,tags,embedding FROM solutions WHERE embedding IS NOT NULL`)
+	// Pure Go cosine similarity requires loading embeddings into memory.
+	// Cap at 1000 most recent to bound memory usage (~1.5MB at 384-dim).
+	rows, err := d.Query(`SELECT id,problem,solution,thoughts,score,tags,embedding FROM solutions WHERE embedding IS NOT NULL ORDER BY created_at DESC LIMIT 1000`)
 	if err != nil {
 		return nil, err
 	}
