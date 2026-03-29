@@ -510,9 +510,8 @@ func registerExperimentTools(s *server.MCPServer) {
 
 	// prepare_experiment
 	s.AddTool(mcp.NewTool("prepare_experiment",
-		mcp.WithDescription("Apply code changes and git commit."),
+		mcp.WithDescription("Apply code changes and git commit. The node_id is only needed for execute_experiment, not here."),
 		mcp.WithString("tree_id", mcp.Required()),
-		mcp.WithString("node_id", mcp.Required()),
 		mcp.WithString("patch_content", mcp.Required(), mcp.Description("Full file content to write")),
 		mcp.WithString("commit_message", mcp.Required()),
 	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
