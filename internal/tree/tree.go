@@ -219,8 +219,12 @@ func AddThought(treeID, parentID, thought string, metadata map[string]any) (*Nod
 	if err != nil {
 		return nil, err
 	}
-	tx.Exec(`INSERT INTO frontier (tree_id,node_id,priority) VALUES (?,?,0)`, treeID, nodeID)
-	tx.Exec(`UPDATE trees SET updated_at=? WHERE id=?`, ts, treeID)
+	if _, err = tx.Exec(`INSERT INTO frontier (tree_id,node_id,priority) VALUES (?,?,0)`, treeID, nodeID); err != nil {
+		return nil, err
+	}
+	if _, err = tx.Exec(`UPDATE trees SET updated_at=? WHERE id=?`, ts, treeID); err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
@@ -253,7 +257,9 @@ func EvaluateThought(treeID, nodeID, evaluation string, customScore *float64) (*
 			return nil, err
 		}
 	}
-	tx.Exec(`UPDATE trees SET updated_at=? WHERE id=?`, now(), treeID)
+	if _, err = tx.Exec(`UPDATE trees SET updated_at=? WHERE id=?`, now(), treeID); err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
@@ -286,7 +292,9 @@ func MarkTerminal(treeID, nodeID string) (*Node, error) {
 	if _, err = tx.Exec(`DELETE FROM frontier WHERE tree_id=? AND node_id=?`, treeID, nodeID); err != nil {
 		return nil, err
 	}
-	tx.Exec(`UPDATE trees SET updated_at=? WHERE id=?`, now(), treeID)
+	if _, err = tx.Exec(`UPDATE trees SET updated_at=? WHERE id=?`, now(), treeID); err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
@@ -587,7 +595,7 @@ func RouteProblem(problem string) (*RouteProblemResult, error) {
 			embScore = embeddings.CosineSimilarity(queryVec, storedVec)
 		}
 
-		// Combined score: use embedding as primary when available
+		// Combined score: take best available signal, boost when both agree
 		var score float64
 		if embScore >= 0.2 && kwScore >= 0.15 {
 			// Both signals meaningfully positive — hybrid boost (20%)
@@ -595,10 +603,9 @@ func RouteProblem(problem string) (*RouteProblemResult, error) {
 			if score > 1.0 {
 				score = 1.0
 			}
-		} else if embScore > 0 {
-			score = embScore
 		} else {
-			score = kwScore
+			// Take whichever signal is stronger
+			score = math.Max(embScore, kwScore)
 		}
 
 		if score > bestScore {
