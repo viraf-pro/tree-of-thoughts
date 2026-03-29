@@ -359,16 +359,17 @@ function renderRadialTree(nodes, bestPath) {
     })
     .attr('d', d3.linkRadial().angle(d => d.x).radius(d => d.y));
 
-  // Draw nodes
+  // Draw non-root nodes
+  const branchNodes = hierRoot.descendants().filter(d => d.depth > 0);
   const nodeG = g.append('g').selectAll('g')
-    .data(hierRoot.descendants())
+    .data(branchNodes)
     .join('g')
     .attr('transform', d => 'translate(' + radialPoint(d.x, d.y).join(',') + ')');
 
   // Node circles
   nodeG.append('circle')
     .attr('class', 'node-circle')
-    .attr('r', d => d.data.isTerminal ? 9 : (d.data.depth === 0 ? 8 : 6))
+    .attr('r', d => d.data.isTerminal ? 9 : 6)
     .attr('fill', d => {
       if (d.data.isTerminal) return COLORS.solution;
       if (d.data.evaluation === 'sure') return COLORS.sure;
@@ -383,7 +384,7 @@ function renderRadialTree(nodes, bestPath) {
       showNodePanel(d.data, byId);
     });
 
-  // Node labels (first few words of thought)
+  // Node labels (first phrase, radially rotated)
   nodeG.append('text')
     .attr('class', 'node-label')
     .attr('dy', '0.31em')
@@ -399,13 +400,59 @@ function renderRadialTree(nodes, bestPath) {
       return trunc(first, 28);
     });
 
-  // Score labels
+  // Score labels on branches
   nodeG.filter(d => d.data.score > 0)
     .append('text')
     .attr('class', 'node-score')
     .attr('dy', '-10')
     .attr('text-anchor', 'middle')
     .text(d => d.data.score.toFixed(2));
+
+  // Root node — special centered treatment
+  const rootG = g.append('g').attr('class', 'root-node');
+  rootG.append('circle')
+    .attr('class', 'node-circle')
+    .attr('r', 22)
+    .attr('fill', COLORS.sure)
+    .attr('stroke', 'var(--bg)')
+    .attr('stroke-width', 3)
+    .attr('cx', 0).attr('cy', 0)
+    .style('cursor', 'pointer')
+    .on('click', (event) => {
+      event.stopPropagation();
+      showNodePanel(hierRoot.data, byId);
+    });
+
+  // Root icon (small tree symbol)
+  rootG.append('text')
+    .attr('text-anchor', 'middle')
+    .attr('dy', '0.35em')
+    .attr('fill', 'white')
+    .attr('font-size', '16px')
+    .style('pointer-events', 'none')
+    .text('\u25CE');
+
+  // Root label — wrapped problem text below the circle
+  const rootText = hierRoot.data.thought || '';
+  const words = rootText.split(/\s+/);
+  const lines = []; let line = '';
+  for (const w of words) {
+    if ((line + ' ' + w).trim().length > 40) { lines.push(line.trim()); line = w; }
+    else { line = (line + ' ' + w).trim(); }
+  }
+  if (line) lines.push(line);
+  const maxLines = Math.min(lines.length, 3);
+
+  for (let i = 0; i < maxLines; i++) {
+    rootG.append('text')
+      .attr('text-anchor', 'middle')
+      .attr('y', 32 + i * 14)
+      .attr('fill', 'var(--tx)')
+      .attr('font-size', '11px')
+      .attr('font-weight', i === 0 ? '600' : '400')
+      .style('pointer-events', 'none')
+      .text(i === maxLines - 1 && lines.length > maxLines ? lines[i] + '...' : lines[i]);
+  }
 
   // Click background to close panel
   svg.on('click', () => closeNodePanel());
