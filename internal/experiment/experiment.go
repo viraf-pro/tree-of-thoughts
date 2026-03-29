@@ -51,10 +51,19 @@ type PrepareResult struct {
 
 // SetConfig stores a config for a tree.
 func SetConfig(treeID string, cfg Config) error {
+	// Validate WorkDir is absolute to prevent path traversal
+	if !filepath.IsAbs(cfg.WorkDir) {
+		return fmt.Errorf("work_dir must be an absolute path, got %q", cfg.WorkDir)
+	}
 	if _, err := os.Stat(cfg.WorkDir); err != nil {
 		return fmt.Errorf("work_dir not found: %w", err)
 	}
+	// Validate TargetFile doesn't escape WorkDir
 	target := filepath.Join(cfg.WorkDir, cfg.TargetFile)
+	absTarget, _ := filepath.Abs(target)
+	if !strings.HasPrefix(absTarget, filepath.Clean(cfg.WorkDir)+string(filepath.Separator)) {
+		return fmt.Errorf("target_file %q escapes work_dir", cfg.TargetFile)
+	}
 	if _, err := os.Stat(target); err != nil {
 		return fmt.Errorf("target_file not found: %w", err)
 	}
@@ -158,7 +167,9 @@ func Execute(treeID, nodeID, previousHash string) (*Result, error) {
 
 	// Git keep/discard
 	if !result.Kept && previousHash != "" {
-		gitReset(cfg.WorkDir, previousHash)
+		if err := gitReset(cfg.WorkDir, previousHash); err != nil {
+			result.LogTail += fmt.Sprintf("\nWARN: git reset --hard %s failed: %v", previousHash, err)
+		}
 	}
 
 	// Auto-evaluate the thought node
@@ -239,8 +250,8 @@ func runCmd(command, cwd string, timeout int, logPath string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
 	defer cancel()
 
-	parts := strings.Fields(command)
-	cmd := exec.CommandContext(ctx, parts[0], parts[1:]...)
+	// Use shell execution to properly handle quoted args and pipes
+	cmd := exec.CommandContext(ctx, "sh", "-c", command)
 	cmd.Dir = cwd
 
 	var buf bytes.Buffer
@@ -301,8 +312,8 @@ func gitCommit(cwd, msg string) string {
 	return gitShort(cwd)
 }
 
-func gitReset(cwd, hash string) {
-	exec.Command("git", "-C", cwd, "reset", "--hard", hash).Run()
+func gitReset(cwd, hash string) error {
+	return exec.Command("git", "-C", cwd, "reset", "--hard", hash).Run()
 }
 
 // --- History ---
