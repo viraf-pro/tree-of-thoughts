@@ -173,7 +173,9 @@ func Execute(treeID, nodeID, previousHash string) (*Result, error) {
 	}
 
 	// Auto-evaluate the thought node
-	autoEvaluate(treeID, nodeID, &result, cfg)
+	if err := autoEvaluate(treeID, nodeID, &result, cfg); err != nil {
+		result.LogTail += fmt.Sprintf("\nWARN: auto-evaluate failed: %v", err)
+	}
 
 	// Log result
 	logResult(treeID, nodeID, &result)
@@ -181,7 +183,7 @@ func Execute(treeID, nodeID, previousHash string) (*Result, error) {
 	return &result, nil
 }
 
-func autoEvaluate(treeID, nodeID string, r *Result, cfg *Config) {
+func autoEvaluate(treeID, nodeID string, r *Result, cfg *Config) error {
 	var eval string
 	var score float64
 
@@ -196,7 +198,8 @@ func autoEvaluate(treeID, nodeID string, r *Result, cfg *Config) {
 		eval = "impossible"
 		score = 0.0
 	}
-	tree.EvaluateThought(treeID, nodeID, eval, &score)
+	_, err := tree.EvaluateThought(treeID, nodeID, eval, &score)
+	return err
 }
 
 func improvementScore(metric *float64, cfg *Config) float64 {

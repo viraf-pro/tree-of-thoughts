@@ -87,7 +87,7 @@ func main() {
 	}
 
 	if err := server.ServeStdio(s); err != nil {
-		log.Fatal(err)
+		log.Print(err)
 	}
 }
 

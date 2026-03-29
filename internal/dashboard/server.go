@@ -214,12 +214,17 @@ func handleRetrieval(w http.ResponseWriter, r *http.Request) {
 
 	// Get solutions filtered by tree, or all if no tree specified
 	var rows *sql.Rows
+	var queryErr error
 	if treeID != "" {
-		rows, _ = d.Query(`SELECT id, problem, solution, thoughts, score, tags, (embedding IS NOT NULL) as has_emb, created_at
+		rows, queryErr = d.Query(`SELECT id, problem, solution, thoughts, score, tags, (embedding IS NOT NULL) as has_emb, created_at
 			FROM solutions WHERE tree_id=? ORDER BY created_at DESC LIMIT 20`, treeID)
 	} else {
-		rows, _ = d.Query(`SELECT id, problem, solution, thoughts, score, tags, (embedding IS NOT NULL) as has_emb, created_at
+		rows, queryErr = d.Query(`SELECT id, problem, solution, thoughts, score, tags, (embedding IS NOT NULL) as has_emb, created_at
 			FROM solutions ORDER BY created_at DESC LIMIT 20`)
+	}
+	if queryErr != nil {
+		http.Error(w, queryErr.Error(), 500)
+		return
 	}
 	defer rows.Close()
 
