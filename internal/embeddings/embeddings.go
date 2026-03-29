@@ -123,6 +123,9 @@ func (p *openaiProvider) Embed(text string) ([]float32, error) {
 		} `json:"data"`
 	}
 	json.NewDecoder(resp.Body).Decode(&out)
+	if len(out.Data) == 0 {
+		return nil, fmt.Errorf("openai returned empty embedding data")
+	}
 	return toFloat32(out.Data[0].Embedding), nil
 }
 
@@ -155,6 +158,9 @@ func (p *voyageProvider) Embed(text string) ([]float32, error) {
 		} `json:"data"`
 	}
 	json.NewDecoder(resp.Body).Decode(&out)
+	if len(out.Data) == 0 {
+		return nil, fmt.Errorf("voyage returned empty embedding data")
+	}
 	return toFloat32(out.Data[0].Embedding), nil
 }
 
@@ -181,6 +187,9 @@ func (p *ollamaProvider) Embed(text string) ([]float32, error) {
 		Embeddings [][]float64 `json:"embeddings"`
 	}
 	json.NewDecoder(resp.Body).Decode(&out)
+	if len(out.Embeddings) == 0 {
+		return nil, fmt.Errorf("ollama returned empty embedding data")
+	}
 	return toFloat32(out.Embeddings[0]), nil
 }
 
