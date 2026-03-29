@@ -105,8 +105,12 @@ func handleTreeDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// All nodes
-	nodeRows, _ := d.Query(`SELECT id, parent_id, thought, evaluation, score, depth, is_terminal
+	nodeRows, err2 := d.Query(`SELECT id, parent_id, thought, evaluation, score, depth, is_terminal
 		FROM nodes WHERE tree_id=? ORDER BY depth, created_at`, treeID)
+	if err2 != nil {
+		jsonErr(w, err2)
+		return
+	}
 	defer nodeRows.Close()
 
 	var nodes []map[string]any
@@ -159,8 +163,12 @@ func handleExperiments(w http.ResponseWriter, r *http.Request) {
 	treeID := strings.TrimPrefix(r.URL.Path, "/api/experiments/")
 	d := db.Get()
 
-	rows, _ := d.Query(`SELECT node_id, status, metric, memory_mb, duration_seconds, commit_hash, kept, created_at
+	rows, err := d.Query(`SELECT node_id, status, metric, memory_mb, duration_seconds, commit_hash, kept, created_at
 		FROM experiment_results WHERE tree_id=? ORDER BY created_at`, treeID)
+	if err != nil {
+		jsonErr(w, err)
+		return
+	}
 	defer rows.Close()
 
 	var exps []map[string]any
