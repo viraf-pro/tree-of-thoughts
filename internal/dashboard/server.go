@@ -242,8 +242,10 @@ func handleRetrieval(w http.ResponseWriter, r *http.Request) {
 		var sc float64
 		var hasEmb int
 		rows.Scan(&sid, &prob, &sol, &thoughtsStr, &sc, &tagsStr, &hasEmb, &created)
+		var tags []string
+		json.Unmarshal([]byte(tagsStr), &tags)
 		sols = append(sols, map[string]any{
-			"id": sid, "problem": prob, "solution": sol,
+			"id": sid, "problem": prob, "solution": sol, "tags": tags,
 			"score": sc, "hasEmbedding": hasEmb == 1, "createdAt": created,
 		})
 	}

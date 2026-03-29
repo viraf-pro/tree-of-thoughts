@@ -45,11 +45,13 @@ h1{font-size:18px;font-weight:500;margin-bottom:4px}
 .exp-metric{font-family:var(--mono);font-size:12px;font-weight:500;min-width:60px;text-align:right}
 .back{font-size:13px;color:var(--tx2);cursor:pointer;margin-bottom:16px;display:inline-block}
 .back:hover{color:var(--tx)}
-.sol-card{padding:10px 14px;border:0.5px solid var(--bd);border-radius:var(--radius);margin-bottom:8px}
-.sol-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
-.sol-problem{font-size:13px;font-weight:500}
+.sol-card{padding:14px 16px;border:0.5px solid var(--bd);border-radius:var(--radius);margin-bottom:10px}
+.sol-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.sol-problem{font-size:14px;font-weight:600}
 .sol-badge{font-size:11px;font-family:var(--mono);padding:2px 8px;border-radius:var(--radius);background:var(--bg2);color:var(--tx2)}
-.sol-text{font-size:12px;color:var(--tx2);line-height:1.5}
+.sol-text{font-size:13px;color:var(--tx);line-height:1.6;white-space:pre-wrap;word-break:break-word}
+.sol-tags{margin-top:8px;display:flex;flex-wrap:wrap;gap:4px}
+.sol-tag{font-size:10px;padding:2px 6px;border-radius:4px;background:var(--bg3);color:var(--tx2)}
 .tree-svg{width:100%;overflow-x:auto}
 .node-rect{cursor:pointer;transition:opacity .15s}
 .node-rect:hover{opacity:0.85}
@@ -188,9 +190,15 @@ async function renderTreeDetail() {
     }
     for (const s of sols) {
       html += '<div class="sol-card"><div class="sol-header">';
-      html += '<span class="sol-problem">'+esc(trunc(s.problem,60))+'</span>';
+      html += '<span class="sol-problem">'+esc(trunc(s.problem,80))+'</span>';
       html += '<span class="sol-badge">'+s.score.toFixed(2)+'</span></div>';
-      html += '<div class="sol-text">'+esc(trunc(s.solution,120))+'</div></div>';
+      html += '<div class="sol-text">'+esc(s.solution)+'</div>';
+      if (s.tags && s.tags.length > 0) {
+        html += '<div class="sol-tags">';
+        for (const tag of s.tags) { html += '<span class="sol-tag">'+esc(tag)+'</span>'; }
+        html += '</div>';
+      }
+      html += '</div>';
     }
     html += '</div>';
     html += '</div>';
