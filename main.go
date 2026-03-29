@@ -87,7 +87,10 @@ func main() {
 	}
 
 	if err := server.ServeStdio(s); err != nil {
+		// log.Fatal calls os.Exit which skips defers. Log and set exit code
+		// so defers (lp.Destroy) run before the process exits.
 		log.Print(err)
+		defer os.Exit(1)
 	}
 }
 
