@@ -2,6 +2,7 @@ package retrieval
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
 	"regexp"
 	"strings"
@@ -292,13 +293,17 @@ func CompactApply(solutionID, summary string) error {
 	defer tx.Rollback()
 
 	// Archive original content
-	tx.Exec(`INSERT OR REPLACE INTO solution_archive (solution_id, original_solution, original_thoughts, archived_at)
-		VALUES (?,?,?,?)`, solutionID, origSolution, origThoughts, ts)
+	if _, err = tx.Exec(`INSERT OR REPLACE INTO solution_archive (solution_id, original_solution, original_thoughts, archived_at)
+		VALUES (?,?,?,?)`, solutionID, origSolution, origThoughts, ts); err != nil {
+		return fmt.Errorf("archive insert failed: %w", err)
+	}
 
 	// Replace with compacted version
 	compactedThoughts, _ := json.Marshal([]string{summary})
-	tx.Exec(`UPDATE solutions SET solution=?, thoughts=?, compacted=1 WHERE id=?`,
-		summary, string(compactedThoughts), solutionID)
+	if _, err = tx.Exec(`UPDATE solutions SET solution=?, thoughts=?, compacted=1 WHERE id=?`,
+		summary, string(compactedThoughts), solutionID); err != nil {
+		return fmt.Errorf("compact update failed: %w", err)
+	}
 
 	return tx.Commit()
 }
@@ -320,9 +325,13 @@ func CompactRestore(solutionID string) error {
 	}
 	defer tx.Rollback()
 
-	tx.Exec(`UPDATE solutions SET solution=?, thoughts=?, compacted=0 WHERE id=?`,
-		origSolution, origThoughts, solutionID)
-	tx.Exec(`DELETE FROM solution_archive WHERE solution_id=?`, solutionID)
+	if _, err = tx.Exec(`UPDATE solutions SET solution=?, thoughts=?, compacted=0 WHERE id=?`,
+		origSolution, origThoughts, solutionID); err != nil {
+		return fmt.Errorf("restore update failed: %w", err)
+	}
+	if _, err = tx.Exec(`DELETE FROM solution_archive WHERE solution_id=?`, solutionID); err != nil {
+		return fmt.Errorf("archive delete failed: %w", err)
+	}
 
 	return tx.Commit()
 }
