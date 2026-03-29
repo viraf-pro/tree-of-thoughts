@@ -159,7 +159,9 @@ func Execute(treeID, nodeID, previousHash string) (*Result, error) {
 				result.Status = "improved"
 				result.Kept = true
 				cfg.BaselineMetric = metric
-				SetConfig(treeID, *cfg)
+				if err := SetConfig(treeID, *cfg); err != nil {
+					result.LogTail += fmt.Sprintf("\nWARN: baseline update failed: %v", err)
+				}
 			} else {
 				result.Status = "regressed"
 				result.Kept = false
@@ -300,7 +302,11 @@ func gitShort(cwd string) string {
 }
 
 func ensureBranch(cfg *Config, treeID string) string {
-	name := cfg.GitBranchPrefix + "/" + treeID[:8]
+	suffix := treeID
+	if len(suffix) > 8 {
+		suffix = suffix[:8]
+	}
+	name := cfg.GitBranchPrefix + "/" + suffix
 	current := git([]string{"rev-parse", "--abbrev-ref", "HEAD"}, cfg.WorkDir)
 	if current == name {
 		return name
