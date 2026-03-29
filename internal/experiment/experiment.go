@@ -106,7 +106,10 @@ func Prepare(treeID, content, commitMsg string) (*PrepareResult, error) {
 		return nil, err
 	}
 
-	hash := gitCommit(cfg.WorkDir, commitMsg)
+	hash, err := gitCommit(cfg.WorkDir, commitMsg)
+	if err != nil {
+		return nil, fmt.Errorf("git commit failed: %w", err)
+	}
 
 	return &PrepareResult{CommitHash: hash, PreviousHash: prevHash, Branch: branch}, nil
 }
@@ -174,7 +177,9 @@ func Execute(treeID, nodeID, previousHash string) (*Result, error) {
 
 	// Auto-evaluate the thought node
 	if err := autoEvaluate(treeID, nodeID, &result, cfg); err != nil {
-		result.LogTail += fmt.Sprintf("\nWARN: auto-evaluate failed: %v", err)
+		// Log the result before returning the error
+		logResult(treeID, nodeID, &result)
+		return &result, fmt.Errorf("experiment ran but node evaluation failed: %w", err)
 	}
 
 	// Log result
@@ -309,10 +314,14 @@ func ensureBranch(cfg *Config, treeID string) string {
 	return name
 }
 
-func gitCommit(cwd, msg string) string {
-	exec.Command("git", "-C", cwd, "add", "-A").Run()
-	exec.Command("git", "-C", cwd, "commit", "-m", msg).Run()
-	return gitShort(cwd)
+func gitCommit(cwd, msg string) (string, error) {
+	if err := exec.Command("git", "-C", cwd, "add", "-A").Run(); err != nil {
+		return "", fmt.Errorf("git add: %w", err)
+	}
+	if err := exec.Command("git", "-C", cwd, "commit", "-m", msg).Run(); err != nil {
+		return "", fmt.Errorf("git commit: %w", err)
+	}
+	return gitShort(cwd), nil
 }
 
 func gitReset(cwd, hash string) error {
