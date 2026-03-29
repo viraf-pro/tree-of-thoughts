@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	_ "modernc.org/sqlite"
@@ -12,12 +13,12 @@ import (
 
 var (
 	instance *sql.DB
+	initErr  error
 	once     sync.Once
 )
 
 // Init opens (or creates) the SQLite database and applies the schema.
 func Init(dbPath string) (*sql.DB, error) {
-	var initErr error
 	once.Do(func() {
 		if dbPath == "" {
 			home, _ := os.UserHomeDir()
@@ -57,8 +58,12 @@ func migrate(d *sql.DB) error {
 		return err
 	}
 	// Additive migrations for existing databases.
-	// ALTER TABLE fails silently if column already exists (CREATE TABLE IF NOT EXISTS already added it).
-	d.Exec(`ALTER TABLE trees ADD COLUMN embedding BLOB`)
+	// "duplicate column name" is expected when column already exists; other errors are real failures.
+	if _, err := d.Exec(`ALTER TABLE trees ADD COLUMN embedding BLOB`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column") {
+			return fmt.Errorf("migrate embedding column: %w", err)
+		}
+	}
 	return nil
 }
 
