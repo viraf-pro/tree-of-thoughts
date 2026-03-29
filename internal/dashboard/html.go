@@ -207,7 +207,7 @@ async function renderTreeDetail() {
     }
     for (const s of sols) {
       html += '<div class="sol-card"><div class="sol-header">';
-      html += '<span class="sol-problem">'+esc(trunc(s.problem,80))+'</span>';
+      html += '<span class="sol-problem">'+esc(s.problem)+'</span>';
       html += '<span class="sol-badge">'+s.score.toFixed(2)+'</span></div>';
       html += '<div class="sol-text">'+esc(s.solution)+'</div>';
       if (s.tags && s.tags.length > 0) {
@@ -230,7 +230,7 @@ async function renderTreeDetail() {
       const leaf = p.steps[p.steps.length - 1];
       const isSolution = leaf.isTerminal;
       const avgScore = p.steps.reduce((s,n) => s+n.score, 0) / p.steps.length;
-      const summaryText = p.steps.slice(1).map(s => trunc(s.thought,50)).join(' → ');
+      const summaryText = p.steps.slice(1).map(s => s.thought.split(/[.:]/, 1)[0]).join(' → ');
 
       html += '<div class="path-card">';
       html += '<div class="path-header" onclick="togglePath('+pi+')">';
