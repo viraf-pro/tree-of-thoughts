@@ -25,18 +25,21 @@ type Provider interface {
 
 // Active returns true if a real provider is configured.
 func Active() bool {
-	_, ok := get().(*noopProvider)
+	_, ok := Get().(*noopProvider)
 	return !ok
 }
 
-var cached Provider
+var (
+	cached     Provider
+	cachedOnce sync.Once
+)
 
 // Get returns the configured provider (or a noop fallback).
+// Safe for concurrent use.
 func Get() Provider {
-	if cached != nil {
-		return cached
-	}
-	cached = get()
+	cachedOnce.Do(func() {
+		cached = get()
+	})
 	return cached
 }
 
