@@ -571,6 +571,101 @@ func TestRouteProblemFallsBackToJaccard(t *testing.T) {
 	}
 }
 
+func TestGetFrontier(t *testing.T) {
+	tr, root, _ := CreateTree("frontier test", "bfs", 5, 3)
+	c1, _ := AddThought(tr.ID, root.ID, "thought A", nil)
+	c2, _ := AddThought(tr.ID, root.ID, "thought B", nil)
+	EvaluateThought(tr.ID, c1.ID, "sure", nil)
+	EvaluateThought(tr.ID, c2.ID, "maybe", nil)
+
+	frontier, err := GetFrontier(tr.ID)
+	if err != nil {
+		t.Fatalf("GetFrontier: %v", err)
+	}
+	// Root + 2 children = 3 frontier nodes (root was never popped)
+	if len(frontier) < 2 {
+		t.Fatalf("frontier count: got %d, want at least 2", len(frontier))
+	}
+	// Should be sorted by score DESC — "sure" node first
+	if frontier[0].Score < frontier[1].Score {
+		t.Fatalf("frontier not sorted by score: first=%f second=%f", frontier[0].Score, frontier[1].Score)
+	}
+
+	// Calling again should return same results (non-destructive)
+	frontier2, _ := GetFrontier(tr.ID)
+	if len(frontier2) != len(frontier) {
+		t.Fatalf("GetFrontier not idempotent: first=%d second=%d", len(frontier), len(frontier2))
+	}
+}
+
+func TestGetFrontierExcludesImpossible(t *testing.T) {
+	tr, root, _ := CreateTree("frontier prune test", "bfs", 5, 3)
+	c1, _ := AddThought(tr.ID, root.ID, "good", nil)
+	c2, _ := AddThought(tr.ID, root.ID, "bad", nil)
+	EvaluateThought(tr.ID, c1.ID, "sure", nil)
+	EvaluateThought(tr.ID, c2.ID, "impossible", nil)
+
+	frontier, _ := GetFrontier(tr.ID)
+	for _, n := range frontier {
+		if n.Evaluation != nil && *n.Evaluation == "impossible" {
+			t.Fatalf("frontier contains impossible node %s", n.ID)
+		}
+	}
+}
+
+func TestGetAllPaths(t *testing.T) {
+	tr, root, _ := CreateTree("all paths test", "bfs", 5, 3)
+
+	// Branch A: root → good (sure, 0.9) → solution (terminal)
+	good, _ := AddThought(tr.ID, root.ID, "good branch", nil)
+	EvaluateThought(tr.ID, good.ID, "sure", nil)
+	solution, _ := AddThought(tr.ID, good.ID, "the solution", nil)
+	score := 0.95
+	EvaluateThought(tr.ID, solution.ID, "sure", &score)
+	MarkTerminal(tr.ID, solution.ID)
+
+	// Branch B: root → ok (maybe, 0.5)
+	ok, _ := AddThought(tr.ID, root.ID, "ok branch", nil)
+	EvaluateThought(tr.ID, ok.ID, "maybe", nil)
+
+	// Branch C: root → bad (impossible) — should be excluded
+	bad, _ := AddThought(tr.ID, root.ID, "dead end", nil)
+	EvaluateThought(tr.ID, bad.ID, "impossible", nil)
+
+	paths, err := GetAllPaths(tr.ID)
+	if err != nil {
+		t.Fatalf("GetAllPaths: %v", err)
+	}
+	if len(paths) < 2 {
+		t.Fatalf("path count: got %d, want at least 2 (terminal + leaf)", len(paths))
+	}
+
+	// First path should have highest average score (the terminal path)
+	if paths[0].AverageScore < paths[1].AverageScore {
+		t.Fatalf("paths not sorted: first avg=%f second avg=%f", paths[0].AverageScore, paths[1].AverageScore)
+	}
+
+	// Terminal path should include "the solution"
+	found := false
+	for _, thought := range paths[0].Thoughts {
+		if thought == "the solution" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("best path should contain 'the solution', got %v", paths[0].Thoughts)
+	}
+
+	// No path should contain the impossible branch
+	for _, p := range paths {
+		for _, thought := range p.Thoughts {
+			if thought == "dead end" {
+				t.Fatal("paths should not contain impossible nodes")
+			}
+		}
+	}
+}
+
 func TestSuggestNextWork(t *testing.T) {
 	// Create a fresh active tree with frontier
 	CreateTree("suggest test tree", "bfs", 5, 3)

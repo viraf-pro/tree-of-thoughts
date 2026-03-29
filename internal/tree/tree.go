@@ -424,6 +424,66 @@ func GetBestPath(treeID string) (*PathResult, error) {
 	return GetPathToNode(treeID, candidateID)
 }
 
+// GetFrontier returns all frontier nodes without removing them.
+// Use this to see all expandable nodes for deep research.
+func GetFrontier(treeID string) ([]Node, error) {
+	d := db.Get()
+
+	// Clean stale entries first
+	d.Exec(`DELETE FROM frontier WHERE tree_id=? AND node_id IN (
+		SELECT id FROM nodes WHERE tree_id=? AND (evaluation='impossible' OR is_terminal=1))`, treeID, treeID)
+
+	rows, err := d.Query(`SELECT n.id,n.tree_id,n.parent_id,n.thought,n.evaluation,n.score,n.depth,n.is_terminal,n.metadata,n.created_at
+		FROM frontier f JOIN nodes n ON n.id=f.node_id
+		WHERE f.tree_id=? ORDER BY n.score DESC, n.depth ASC`, treeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanNodes(rows)
+}
+
+// GetAllPaths returns paths to all leaf and terminal nodes, ranked by average score.
+// A leaf is a node with no children that isn't pruned. Use this to compare all
+// explored branches before deciding which to mark as solution.
+func GetAllPaths(treeID string) ([]PathResult, error) {
+	d := db.Get()
+
+	// Find all leaves and terminals (nodes that aren't parents and aren't impossible)
+	rows, err := d.Query(`SELECT id, score FROM nodes WHERE tree_id=? AND evaluation!='impossible'
+		AND (is_terminal=1 OR id NOT IN (SELECT DISTINCT parent_id FROM nodes WHERE tree_id=? AND parent_id IS NOT NULL))
+		ORDER BY is_terminal DESC, score DESC`, treeID, treeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var candidateIDs []string
+	for rows.Next() {
+		var id string
+		var score float64
+		rows.Scan(&id, &score)
+		candidateIDs = append(candidateIDs, id)
+	}
+
+	var paths []PathResult
+	for _, id := range candidateIDs {
+		path, err := GetPathToNode(treeID, id)
+		if err != nil || len(path.NodeIDs) == 0 {
+			continue
+		}
+		paths = append(paths, *path)
+	}
+
+	// Sort by average score descending
+	for i := 1; i < len(paths); i++ {
+		for j := i; j > 0 && paths[j].AverageScore > paths[j-1].AverageScore; j-- {
+			paths[j], paths[j-1] = paths[j-1], paths[j]
+		}
+	}
+	return paths, nil
+}
+
 // NodeCount returns the number of nodes in a tree.
 func NodeCount(treeID string) int {
 	d := db.Get()

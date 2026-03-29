@@ -275,6 +275,62 @@ func registerTreeTools(s *server.MCPServer) {
 		return textResult(map[string]any{"node": node, "children": children, "pathFromRoot": path.Thoughts, "pathScore": path.AverageScore}), nil
 	})
 
+	// get_frontier — see all expandable nodes without popping
+	s.AddTool(mcp.NewTool("get_frontier",
+		mcp.WithDescription("List all frontier nodes (expandable, not yet explored) ranked by score. Unlike search_step, this does NOT remove nodes from the frontier. Use this for deep research — see all options before deciding which branches to expand."),
+		mcp.WithString("tree_id", mcp.Required()),
+	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		treeID, _ := req.RequireString("tree_id")
+		nodes, err := tree.GetFrontier(treeID)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		items := make([]map[string]any, len(nodes))
+		for i, n := range nodes {
+			item := map[string]any{
+				"id": n.ID, "thought": n.Thought, "score": n.Score, "depth": n.Depth,
+			}
+			if n.Evaluation != nil {
+				item["evaluation"] = *n.Evaluation
+			}
+			if n.ParentID != nil {
+				item["parentId"] = *n.ParentID
+			}
+			items[i] = item
+		}
+		return textResult(map[string]any{
+			"message":  fmt.Sprintf("%d frontier nodes available for expansion.", len(nodes)),
+			"frontier": items,
+		}), nil
+	})
+
+	// get_all_paths — compare all explored branches
+	s.AddTool(mcp.NewTool("get_all_paths",
+		mcp.WithDescription("Return all paths to leaf and terminal nodes, ranked by average score. Use this to compare all explored branches before deciding which to mark as solution. Essential for deep research where multiple branches are explored in parallel."),
+		mcp.WithString("tree_id", mcp.Required()),
+	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		treeID, _ := req.RequireString("tree_id")
+		paths, err := tree.GetAllPaths(treeID)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		items := make([]map[string]any, len(paths))
+		for i, p := range paths {
+			items[i] = map[string]any{
+				"rank":         i + 1,
+				"thoughts":     p.Thoughts,
+				"nodeIds":      p.NodeIDs,
+				"depth":        p.Depth,
+				"totalScore":   p.TotalScore,
+				"averageScore": p.AverageScore,
+			}
+		}
+		return textResult(map[string]any{
+			"message": fmt.Sprintf("%d paths found. Ranked by average score.", len(paths)),
+			"paths":   items,
+		}), nil
+	})
+
 	// list_trees
 	s.AddTool(mcp.NewTool("list_trees",
 		mcp.WithDescription("List all reasoning trees."),
