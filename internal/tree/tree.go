@@ -241,14 +241,22 @@ func EvaluateThought(treeID, nodeID, evaluation string, customScore *float64) (*
 	}
 	defer tx.Rollback()
 
-	tx.Exec(`UPDATE nodes SET evaluation=?, score=? WHERE id=? AND tree_id=?`, evaluation, score, nodeID, treeID)
+	if _, err = tx.Exec(`UPDATE nodes SET evaluation=?, score=? WHERE id=? AND tree_id=?`, evaluation, score, nodeID, treeID); err != nil {
+		return nil, err
+	}
 	if evaluation == "impossible" {
-		tx.Exec(`DELETE FROM frontier WHERE tree_id=? AND node_id=?`, treeID, nodeID)
+		if _, err = tx.Exec(`DELETE FROM frontier WHERE tree_id=? AND node_id=?`, treeID, nodeID); err != nil {
+			return nil, err
+		}
 	} else {
-		tx.Exec(`UPDATE frontier SET priority=? WHERE tree_id=? AND node_id=?`, score, treeID, nodeID)
+		if _, err = tx.Exec(`UPDATE frontier SET priority=? WHERE tree_id=? AND node_id=?`, score, treeID, nodeID); err != nil {
+			return nil, err
+		}
 	}
 	tx.Exec(`UPDATE trees SET updated_at=? WHERE id=?`, now(), treeID)
-	tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
 	return GetNode(treeID, nodeID)
 }
 
@@ -266,9 +274,22 @@ func evalToScore(e string) float64 {
 // MarkTerminal marks a node as a solution.
 func MarkTerminal(treeID, nodeID string) (*Node, error) {
 	d := db.Get()
-	d.Exec(`UPDATE nodes SET is_terminal=1 WHERE id=? AND tree_id=?`, nodeID, treeID)
-	d.Exec(`DELETE FROM frontier WHERE tree_id=? AND node_id=?`, treeID, nodeID)
-	d.Exec(`UPDATE trees SET updated_at=? WHERE id=?`, now(), treeID)
+	tx, err := d.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	if _, err = tx.Exec(`UPDATE nodes SET is_terminal=1 WHERE id=? AND tree_id=?`, nodeID, treeID); err != nil {
+		return nil, err
+	}
+	if _, err = tx.Exec(`DELETE FROM frontier WHERE tree_id=? AND node_id=?`, treeID, nodeID); err != nil {
+		return nil, err
+	}
+	tx.Exec(`UPDATE trees SET updated_at=? WHERE id=?`, now(), treeID)
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
 	return GetNode(treeID, nodeID)
 }
 
