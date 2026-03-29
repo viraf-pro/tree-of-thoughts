@@ -127,12 +127,21 @@ async function renderTreeDetail() {
     return a.metric-b.metric;
   })[0];
 
-  html += '<div class="grid grid-4">';
-  html += metricCard('Nodes', stats.total, stats.pruned+' pruned, '+stats.terminal+' solutions');
-  html += metricCard('Experiments', expStats.total, expStats.improved+' kept, '+expStats.crashed+' crashed');
-  html += metricCard('Success rate', expStats.successRate+'%', expStats.discarded+' discarded');
-  html += metricCard('Best metric', bestMetric?bestMetric.metric.toFixed(4):'N/A', bestMetric?esc(getNodeThought(nodes, bestMetric.nodeId)):'no experiments');
-  html += '</div>';
+  if (expStats.total > 0) {
+    html += '<div class="grid grid-4">';
+    html += metricCard('Nodes', stats.total, stats.pruned+' pruned, '+stats.terminal+' solutions');
+    html += metricCard('Experiments', expStats.total, expStats.improved+' kept, '+expStats.crashed+' crashed');
+    html += metricCard('Success rate', expStats.successRate+'%', expStats.discarded+' discarded');
+    html += metricCard('Best metric', bestMetric?bestMetric.metric.toFixed(4):'N/A', bestMetric?esc(getNodeThought(nodes, bestMetric.nodeId)):'no experiments');
+    html += '</div>';
+  } else {
+    html += '<div class="grid grid-4">';
+    html += metricCard('Nodes', stats.total, stats.pruned+' pruned, '+stats.terminal+' solutions');
+    html += metricCard('Frontier', stats.frontier, 'nodes to expand');
+    html += metricCard('Max depth', stats.maxDepth, 'of '+treeData.tree.maxDepth+' limit');
+    html += metricCard('Active', stats.active, stats.total+' total nodes');
+    html += '</div>';
+  }
 
   // Tree visualization
   html += '<div class="section">Reasoning tree</div>';
@@ -147,30 +156,34 @@ async function renderTreeDetail() {
   html += buildTreeSVG(nodes, bestPath);
   html += '</div>';
 
-  // Experiments + Retrieval side by side
-  if (exps.length > 0 || sols.length > 0) {
-    html += '<div class="grid grid-2">';
+  // Experiments + Retrieval side by side (or just retrieval if no experiments)
+  const showExps = exps.length > 0;
+  const showSols = sols.length > 0;
+  if (showExps || showSols) {
+    html += showExps ? '<div class="grid grid-2">' : '<div>';
 
-    // Experiments
-    html += '<div class="card-border">';
-    html += '<div style="font-size:14px;font-weight:500;margin-bottom:10px">Experiment history</div>';
-    for (const e of exps) {
-      const dotClass = 'dot dot-'+(e.status||'regressed');
-      const label = getNodeThought(nodes, e.nodeId);
-      const metricStr = e.metric != null ? e.metric.toFixed(4) : (e.status==='crashed'?'crash':'N/A');
-      const tagClass = e.kept?'tag-keep':(e.status==='crashed'?'tag-crash':'tag-discard');
-      const tagLabel = e.kept?'keep':(e.status==='crashed'?'crash':'discard');
-      html += '<div class="exp-row"><span class="'+dotClass+'"></span>';
-      html += '<span class="exp-label">'+esc(label)+'</span>';
-      html += '<span class="exp-metric">'+metricStr+'</span>';
-      html += '<span class="tag '+tagClass+'">'+tagLabel+'</span></div>';
+    // Experiments — only when they exist
+    if (showExps) {
+      html += '<div class="card-border">';
+      html += '<div style="font-size:14px;font-weight:500;margin-bottom:10px">Experiment history</div>';
+      for (const e of exps) {
+        const dotClass = 'dot dot-'+(e.status||'regressed');
+        const label = getNodeThought(nodes, e.nodeId);
+        const metricStr = e.metric != null ? e.metric.toFixed(4) : (e.status==='crashed'?'crash':'N/A');
+        const tagClass = e.kept?'tag-keep':(e.status==='crashed'?'tag-crash':'tag-discard');
+        const tagLabel = e.kept?'keep':(e.status==='crashed'?'crash':'discard');
+        html += '<div class="exp-row"><span class="'+dotClass+'"></span>';
+        html += '<span class="exp-label">'+esc(label)+'</span>';
+        html += '<span class="exp-metric">'+metricStr+'</span>';
+        html += '<span class="tag '+tagClass+'">'+tagLabel+'</span></div>';
+      }
+      html += '</div>';
     }
-    html += '</div>';
 
     // Retrieval
     html += '<div class="card-border">';
     html += '<div style="font-size:14px;font-weight:500;margin-bottom:10px">Solution store</div>';
-    if (sols.length === 0) {
+    if (!showSols) {
       html += '<div style="font-size:13px;color:var(--tx2);padding:20px 0;text-align:center">No stored solutions yet</div>';
     }
     for (const s of sols) {
