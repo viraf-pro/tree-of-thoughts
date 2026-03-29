@@ -81,13 +81,13 @@ func main() {
 		}), nil
 	})
 
-	if err := server.ServeStdio(s); err != nil {
-		log.Fatal(err)
+	// Register cleanup before the blocking call so it runs on return
+	if lp, ok := ep.(*embeddings.LocalProvider); ok {
+		defer lp.Destroy()
 	}
 
-	// Graceful shutdown: clean up local embedding provider if active
-	if lp, ok := ep.(*embeddings.LocalProvider); ok {
-		lp.Destroy()
+	if err := server.ServeStdio(s); err != nil {
+		log.Fatal(err)
 	}
 }
 
