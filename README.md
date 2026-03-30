@@ -1,8 +1,23 @@
-# tot-mcp
+# Tree of Thoughts MCP
 
 A single-binary MCP server for tree-structured reasoning with persistent storage, hybrid retrieval, an autonomous experiment runner, and a live web dashboard.
 
 Built on the [Tree of Thoughts](https://arxiv.org/abs/2305.10601) framework (Yao et al., 2023). The server gives LLMs structured exploration over multiple reasoning paths with evaluation, backtracking, and search algorithms, instead of linear chain-of-thought.
+
+## The idea in plain English
+
+When you ask an AI a question, it thinks in a straight line — one thought leads to the next, like walking down a single hallway. If it picks the wrong direction early on, it's stuck with a bad answer.
+
+Tree of Thoughts fixes this by making the AI think more like a human solving a hard problem. Instead of one hallway, imagine a **tree** with many branches:
+
+1. **Branch out.** When facing a problem, the AI comes up with 3-5 different ideas at once (not just one).
+2. **Rate each idea.** It scores them: "this one looks promising," "this one might work," or "this is a dead end." Dead ends get chopped off.
+3. **Go deeper on the good ones.** For each promising idea, it branches again — more sub-ideas, more scoring.
+4. **Compare everything.** After exploring many branches, it looks at ALL the paths it tried and picks the best one based on evidence, not gut instinct.
+
+Think of it like a chess player who considers multiple moves ahead on different branches, instead of just playing the first move that looks okay.
+
+Everything the AI figures out gets saved in a database. Next time a similar problem comes up, it remembers past solutions and builds on them instead of starting from scratch — a notebook that gets smarter over time.
 
 ## What it does
 
