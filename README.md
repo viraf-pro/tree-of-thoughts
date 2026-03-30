@@ -41,15 +41,16 @@ The binary starts two things: an MCP server on stdio (for Claude Desktop / Claud
 
 ```bash
 # Linux x86_64
-curl -L https://github.com/viraf-pro/tree-of-thoughts/releases/latest/download/tot-mcp-linux-amd64 -o tot-mcp
+curl -L https://github.com/viraf-pro/tree-of-thoughts/releases/latest/download/tot-mcp-linux-amd64.gz | gunzip > tot-mcp
 chmod +x tot-mcp
 
 # macOS Apple Silicon
-curl -L https://github.com/viraf-pro/tree-of-thoughts/releases/latest/download/tot-mcp-darwin-arm64 -o tot-mcp
+curl -L https://github.com/viraf-pro/tree-of-thoughts/releases/latest/download/tot-mcp-darwin-arm64.gz | gunzip > tot-mcp
 chmod +x tot-mcp
 
-# Windows
-curl -L https://github.com/viraf-pro/tree-of-thoughts/releases/latest/download/tot-mcp-windows-amd64.exe -o tot-mcp.exe
+# Windows (PowerShell)
+curl -L https://github.com/viraf-pro/tree-of-thoughts/releases/latest/download/tot-mcp-windows-amd64.exe.gz -o tot-mcp.exe.gz
+gzip -d tot-mcp.exe.gz
 ```
 
 ## Cross-compile all platforms
