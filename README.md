@@ -118,6 +118,45 @@ Optionally, for faster embeddings via OpenAI:
 claude mcp add tree-of-thoughts /absolute/path/to/tot-mcp
 ```
 
+## Connect to ChatGPT Desktop
+
+ChatGPT desktop (macOS and Windows) supports MCP servers via its settings file.
+
+**macOS:** Edit `~/Library/Application Support/com.openai.chat/mcp.json`
+
+**Windows:** Edit `%APPDATA%\com.openai.chat\mcp.json`
+
+Create the file if it doesn't exist, then add:
+
+```json
+{
+  "mcpServers": {
+    "tree-of-thoughts": {
+      "command": "/absolute/path/to/tot-mcp"
+    }
+  }
+}
+```
+
+With an embedding API key:
+
+```json
+{
+  "mcpServers": {
+    "tree-of-thoughts": {
+      "command": "/absolute/path/to/tot-mcp",
+      "env": {
+        "OPENAI_API_KEY": "sk-..."
+      }
+    }
+  }
+}
+```
+
+Restart ChatGPT after saving. The tools will appear in the toolbox icon at the bottom of the chat input.
+
+> **Note:** ChatGPT currently supports tools only — prompts and resources are not yet supported. All 30 tot-mcp tools are tool-type, so everything works.
+
 ## Configuration
 
 All configuration is via environment variables.
