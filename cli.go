@@ -29,6 +29,9 @@ func runCLI(args []string) bool {
 	}
 
 	switch cmd {
+	case "version", "--version", "-v":
+		fmt.Printf("tot-mcp %s\n", version)
+		return true
 	case "help", "--help", "-h":
 		printHelp()
 	case "suggest":
@@ -81,9 +84,8 @@ func runCLI(args []string) bool {
 }
 
 func printHelp() {
-	fmt.Println(`tot-mcp — Tree of Thoughts MCP server and CLI
-
-USAGE:
+	fmt.Printf("tot-mcp %s — Tree of Thoughts MCP server and CLI\n\n", version)
+	fmt.Println(`USAGE:
   tot-mcp                    Start MCP server (stdio) + dashboard
   tot-mcp <command> [args]   Run a CLI command
 
@@ -97,6 +99,7 @@ COMMANDS:
   audit [tree_id]            View audit trail (last 20 entries)
   stats                      Retrieval store statistics
   compact                    Find solutions eligible for compaction
+  version                    Show version
   help                       Show this message
 
 OPTIONS:

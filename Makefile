@@ -1,5 +1,5 @@
 BINARY := tot-mcp
-VERSION := 2.0.0
+VERSION := 0.1.0
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
 .PHONY: build clean all

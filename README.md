@@ -24,8 +24,8 @@ Built on the [Tree of Thoughts](https://arxiv.org/abs/2305.10601) framework (Yao
 
 ```bash
 # Clone
-git clone https://github.com/your-org/tot-mcp.git
-cd tot-mcp
+git clone https://github.com/viraf-pro/tree-of-thoughts.git
+cd tree-of-thoughts
 
 # Build
 go mod tidy
@@ -41,15 +41,15 @@ The binary starts two things: an MCP server on stdio (for Claude Desktop / Claud
 
 ```bash
 # Linux x86_64
-curl -L https://github.com/your-org/tot-mcp/releases/latest/download/tot-mcp-linux-amd64 -o tot-mcp
+curl -L https://github.com/viraf-pro/tree-of-thoughts/releases/latest/download/tot-mcp-linux-amd64 -o tot-mcp
 chmod +x tot-mcp
 
 # macOS Apple Silicon
-curl -L https://github.com/your-org/tot-mcp/releases/latest/download/tot-mcp-darwin-arm64 -o tot-mcp
+curl -L https://github.com/viraf-pro/tree-of-thoughts/releases/latest/download/tot-mcp-darwin-arm64 -o tot-mcp
 chmod +x tot-mcp
 
 # Windows
-curl -L https://github.com/your-org/tot-mcp/releases/latest/download/tot-mcp-windows-amd64.exe -o tot-mcp.exe
+curl -L https://github.com/viraf-pro/tree-of-thoughts/releases/latest/download/tot-mcp-windows-amd64.exe -o tot-mcp.exe
 ```
 
 ## Cross-compile all platforms

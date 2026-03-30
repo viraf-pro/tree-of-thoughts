@@ -18,6 +18,8 @@ import (
 	"github.com/tot-mcp/tot-mcp-go/internal/tree"
 )
 
+var version = "dev"
+
 func main() {
 	// CLI mode: if called with arguments, dispatch to CLI handler
 	if len(os.Args) > 1 {
@@ -54,7 +56,7 @@ func main() {
 		}
 	}
 
-	s := server.NewMCPServer("tot-mcp-server", "2.0.0", server.WithToolCapabilities(false))
+	s := server.NewMCPServer("tot-mcp-server", version, server.WithToolCapabilities(false))
 
 	registerTreeTools(s)
 	registerRetrievalTools(s)
