@@ -179,3 +179,69 @@ func TestHasOverlap(t *testing.T) {
 		t.Fatal("nil should not overlap")
 	}
 }
+
+// --- Solution cross-reference tests ---
+
+func TestLinkSolutions(t *testing.T) {
+	d := db.Get()
+	d.Exec(`INSERT OR IGNORE INTO solutions (id,problem,solution,thoughts,path_ids,score,tags,compacted,created_at)
+		VALUES ('link-sol-1','problem A','solution A','[]','[]',0.8,'[]',0,'2024-01-01T00:00:00Z')`)
+	d.Exec(`INSERT OR IGNORE INTO solutions (id,problem,solution,thoughts,path_ids,score,tags,compacted,created_at)
+		VALUES ('link-sol-2','problem B','solution B','[]','[]',0.7,'[]',0,'2024-01-01T00:00:00Z')`)
+
+	link, err := LinkSolutions("link-sol-1", "link-sol-2", "related", "test link")
+	if err != nil {
+		t.Fatalf("LinkSolutions: %v", err)
+	}
+	if link.LinkType != "related" {
+		t.Fatalf("link_type: got %q", link.LinkType)
+	}
+	if link.ID == "" {
+		t.Fatal("expected non-empty link ID")
+	}
+}
+
+func TestLinkSolutionsSelfLink(t *testing.T) {
+	_, err := LinkSolutions("link-sol-1", "link-sol-1", "related", "")
+	if err == nil {
+		t.Fatal("expected error for self-link")
+	}
+}
+
+func TestLinkSolutionsInvalidType(t *testing.T) {
+	_, err := LinkSolutions("link-sol-1", "link-sol-2", "bogus", "")
+	if err == nil {
+		t.Fatal("expected error for invalid link type")
+	}
+}
+
+func TestGetSolutionLinks(t *testing.T) {
+	links, err := GetSolutionLinks("link-sol-1")
+	if err != nil {
+		t.Fatalf("GetSolutionLinks: %v", err)
+	}
+	if len(links) < 1 {
+		t.Fatal("expected at least 1 link")
+	}
+}
+
+// --- Knowledge log tests ---
+
+func TestGetKnowledgeLog(t *testing.T) {
+	// LinkSolutions above already logged a knowledge event
+	events, err := GetKnowledgeLog(20)
+	if err != nil {
+		t.Fatalf("GetKnowledgeLog: %v", err)
+	}
+	if len(events) == 0 {
+		t.Fatal("expected at least 1 knowledge event from prior tests")
+	}
+	for _, e := range events {
+		if e.EventType == "" {
+			t.Fatal("event_type should not be empty")
+		}
+		if e.CreatedAt == "" {
+			t.Fatal("created_at should not be empty")
+		}
+	}
+}

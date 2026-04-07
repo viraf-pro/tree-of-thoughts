@@ -349,3 +349,104 @@ func hasOverlap(a, b []string) bool {
 	return false
 }
 
+// --- Solution Cross-References ---
+
+// SolutionLink represents a cross-reference between two solutions.
+type SolutionLink struct {
+	ID        string `json:"id"`
+	SourceID  string `json:"sourceId"`
+	TargetID  string `json:"targetId"`
+	LinkType  string `json:"linkType"`
+	Note      string `json:"note"`
+	CreatedAt string `json:"createdAt"`
+}
+
+var validSolutionLinkTypes = map[string]bool{
+	"related": true, "supersedes": true, "contradicts": true, "extends": true,
+}
+
+// LinkSolutions creates a cross-reference between two solutions.
+func LinkSolutions(sourceID, targetID, linkType, note string) (*SolutionLink, error) {
+	if sourceID == targetID {
+		return nil, fmt.Errorf("cannot link a solution to itself")
+	}
+	if !validSolutionLinkTypes[linkType] {
+		return nil, fmt.Errorf("invalid link type %q (valid: related, supersedes, contradicts, extends)", linkType)
+	}
+
+	d := db.Get()
+	id := uuid.NewString()
+	ts := time.Now().UTC().Format(time.RFC3339)
+
+	_, err := d.Exec(`INSERT INTO solution_links (id,source_id,target_id,link_type,note,created_at)
+		VALUES (?,?,?,?,?,?)`, id, sourceID, targetID, linkType, note, ts)
+	if err != nil {
+		return nil, err
+	}
+
+	LogKnowledgeEvent("linked", sourceID, fmt.Sprintf("%s -> %s (%s)", sourceID[:8], targetID[:8], linkType))
+
+	return &SolutionLink{
+		ID: id, SourceID: sourceID, TargetID: targetID,
+		LinkType: linkType, Note: note, CreatedAt: ts,
+	}, nil
+}
+
+// GetSolutionLinks returns all links where the given solution is source or target.
+func GetSolutionLinks(solutionID string) ([]SolutionLink, error) {
+	d := db.Get()
+	rows, err := d.Query(`SELECT id,source_id,target_id,link_type,note,created_at
+		FROM solution_links WHERE source_id=? OR target_id=? ORDER BY created_at DESC`,
+		solutionID, solutionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []SolutionLink
+	for rows.Next() {
+		var l SolutionLink
+		rows.Scan(&l.ID, &l.SourceID, &l.TargetID, &l.LinkType, &l.Note, &l.CreatedAt)
+		out = append(out, l)
+	}
+	return out, nil
+}
+
+// --- Knowledge Event Log ---
+
+// KnowledgeEvent is a single knowledge log entry.
+type KnowledgeEvent struct {
+	ID         int    `json:"id"`
+	EventType  string `json:"eventType"`
+	SolutionID string `json:"solutionId,omitempty"`
+	Detail     string `json:"detail"`
+	CreatedAt  string `json:"createdAt"`
+}
+
+// LogKnowledgeEvent appends to the knowledge_log table.
+func LogKnowledgeEvent(eventType, solutionID, detail string) {
+	d := db.Get()
+	ts := time.Now().UTC().Format(time.RFC3339)
+	d.Exec(`INSERT INTO knowledge_log (event_type,solution_id,detail,created_at)
+		VALUES (?,?,?,?)`, eventType, solutionID, detail, ts)
+}
+
+// GetKnowledgeLog returns recent knowledge events.
+func GetKnowledgeLog(limit int) ([]KnowledgeEvent, error) {
+	d := db.Get()
+	rows, err := d.Query(`SELECT id,event_type,COALESCE(solution_id,''),detail,created_at
+		FROM knowledge_log ORDER BY id DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []KnowledgeEvent
+	for rows.Next() {
+		var e KnowledgeEvent
+		rows.Scan(&e.ID, &e.EventType, &e.SolutionID, &e.Detail, &e.CreatedAt)
+		out = append(out, e)
+	}
+	return out, nil
+}
+
