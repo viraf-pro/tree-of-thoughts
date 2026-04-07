@@ -95,3 +95,36 @@ func TestAuditResultTruncation(t *testing.T) {
 		t.Fatalf("result not truncated: len=%d", len(entries[0].Result))
 	}
 }
+
+func TestSolutionLinksTable(t *testing.T) {
+	d := Get()
+	// Insert referenced solutions first (FK constraint)
+	d.Exec(`INSERT OR IGNORE INTO solutions (id,problem,solution,thoughts,path_ids,score,tags,compacted,created_at)
+		VALUES ('src-1','p','s','[]','[]',0,'[]',0,'2024-01-01T00:00:00Z')`)
+	d.Exec(`INSERT OR IGNORE INTO solutions (id,problem,solution,thoughts,path_ids,score,tags,compacted,created_at)
+		VALUES ('tgt-1','p','s','[]','[]',0,'[]',0,'2024-01-01T00:00:00Z')`)
+	_, err := d.Exec(`INSERT INTO solution_links (id,source_id,target_id,link_type,note,created_at)
+		VALUES ('sl-test','src-1','tgt-1','related','test','2024-01-01T00:00:00Z')`)
+	if err != nil {
+		t.Fatalf("insert solution_links: %v", err)
+	}
+	var lt string
+	d.QueryRow(`SELECT link_type FROM solution_links WHERE id='sl-test'`).Scan(&lt)
+	if lt != "related" {
+		t.Fatalf("link_type: got %q", lt)
+	}
+}
+
+func TestKnowledgeLogTable(t *testing.T) {
+	d := Get()
+	_, err := d.Exec(`INSERT INTO knowledge_log (event_type,solution_id,detail,created_at)
+		VALUES ('stored','sol-1','test detail','2024-01-01T00:00:00Z')`)
+	if err != nil {
+		t.Fatalf("insert knowledge_log: %v", err)
+	}
+	var et string
+	d.QueryRow(`SELECT event_type FROM knowledge_log WHERE solution_id='sol-1'`).Scan(&et)
+	if et != "stored" {
+		t.Fatalf("event_type: got %q", et)
+	}
+}

@@ -185,4 +185,24 @@ CREATE TABLE IF NOT EXISTS tree_links (
 );
 CREATE INDEX IF NOT EXISTS idx_links_source ON tree_links(source_tree);
 CREATE INDEX IF NOT EXISTS idx_links_target ON tree_links(target_tree);
+
+CREATE TABLE IF NOT EXISTS solution_links (
+	id         TEXT PRIMARY KEY,
+	source_id  TEXT NOT NULL REFERENCES solutions(id) ON DELETE CASCADE,
+	target_id  TEXT NOT NULL REFERENCES solutions(id) ON DELETE CASCADE,
+	link_type  TEXT NOT NULL DEFAULT 'related',
+	note       TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sollinks_source ON solution_links(source_id);
+CREATE INDEX IF NOT EXISTS idx_sollinks_target ON solution_links(target_id);
+
+CREATE TABLE IF NOT EXISTS knowledge_log (
+	id          INTEGER PRIMARY KEY AUTOINCREMENT,
+	event_type  TEXT NOT NULL,
+	solution_id TEXT,
+	detail      TEXT NOT NULL DEFAULT '',
+	created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_klog_type ON knowledge_log(event_type);
 `
