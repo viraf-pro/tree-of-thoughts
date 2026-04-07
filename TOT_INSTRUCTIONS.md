@@ -40,6 +40,17 @@ server for structured exploration instead of linear chain-of-thought.
 2. For each candidate, generate a 1-2 sentence summary preserving the key insight.
 3. Call `compact_apply` with the summary. Original is archived and restorable.
 
+### Knowledge maintenance (periodic)
+
+1. Call `lint_knowledge` to health-check the knowledge store.
+2. Review the report: orphan solutions, unlinked entries, stale knowledge, contradictions.
+3. For contradictions: compare the two solutions and decide which to keep, or use `link_solutions` with type `contradicts` to flag them.
+4. For unlinked solutions: use `link_solutions` to connect related entries (types: `related`, `supersedes`, `contradicts`, `extends`).
+5. For stale solutions: consider `compact_analyze` or re-evaluation.
+6. Call `knowledge_log` to review how the knowledge base evolved over time.
+
+Note: `store_solution` automatically cross-references new solutions with similar existing ones. Manual linking is for connections the auto-linker misses.
+
 ## When to use Tree of Thoughts
 
 Use ToT for problems where:
@@ -75,6 +86,10 @@ Do NOT use ToT for:
 | `retrieve_context` | Search past solutions for similar problems. |
 | `store_solution` | Save a solution for future retrieval. |
 | `link_trees` | Connect two trees (depends_on, informs, etc). |
+| `link_solutions` | Cross-reference two solutions (related, supersedes, contradicts, extends). |
+| `get_solution_links` | View what a solution is connected to in the knowledge graph. |
+| `lint_knowledge` | Periodic health-check. Find orphans, contradictions, stale entries. |
+| `knowledge_log` | View the timeline of knowledge evolution. |
 | `compact_analyze` | Find old solutions eligible for compression. |
 | `compact_apply` | Compress a solution, archive the original. |
 | `audit_log` | View the decision trail for debugging. |
