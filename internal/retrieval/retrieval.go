@@ -118,6 +118,9 @@ func Retrieve(query string, topK int, filterTags []string) ([]Result, error) {
 	if len(sorted) > topK {
 		sorted = sorted[:topK]
 	}
+	if len(sorted) > 0 {
+		LogKnowledgeEvent("retrieved", "", fmt.Sprintf("matched=%d", len(sorted)))
+	}
 	return sorted, nil
 }
 
@@ -516,14 +519,18 @@ type SimilarPair struct {
 // LintKnowledge health-checks the knowledge store.
 func LintKnowledge() (*LintReport, error) {
 	d := db.Get()
-	report := &LintReport{}
+	report := &LintReport{
+		SimilarPairs: make([]SimilarPair, 0),
+		Suggestions:  make([]string, 0),
+	}
 
 	d.QueryRow(`SELECT COUNT(*) FROM solutions`).Scan(&report.TotalSolutions)
 
-	// Orphan solutions: from abandoned trees or trees that no longer exist
+	// Orphan solutions: from abandoned trees or trees that were deleted
 	d.QueryRow(`SELECT COUNT(*) FROM solutions s
 		LEFT JOIN trees t ON s.tree_id=t.id
-		WHERE t.status='abandoned' OR (s.tree_id IS NOT NULL AND s.tree_id != '' AND t.id IS NULL)`).Scan(&report.OrphanSolutions)
+		WHERE s.tree_id IS NOT NULL AND s.tree_id != ''
+		AND (t.id IS NULL OR t.status='abandoned')`).Scan(&report.OrphanSolutions)
 
 	// Unlinked solutions: no entries in solution_links
 	d.QueryRow(`SELECT COUNT(*) FROM solutions s
