@@ -470,3 +470,140 @@ func GetKnowledgeLog(limit int) ([]KnowledgeEvent, error) {
 	return out, nil
 }
 
+// --- Knowledge Lint ---
+
+// LintReport summarizes the health of the knowledge store.
+type LintReport struct {
+	TotalSolutions    int             `json:"totalSolutions"`
+	OrphanSolutions   int             `json:"orphanSolutions"`
+	UnlinkedSolutions int             `json:"unlinkedSolutions"`
+	StaleSolutions    int             `json:"staleSolutions"`
+	Contradictions    []Contradiction `json:"contradictions"`
+	Suggestions       []string        `json:"suggestions"`
+}
+
+// Contradiction represents two solutions with high similarity but potentially conflicting content.
+type Contradiction struct {
+	SolutionA  string  `json:"solutionA"`
+	SolutionB  string  `json:"solutionB"`
+	ProblemA   string  `json:"problemA"`
+	ProblemB   string  `json:"problemB"`
+	Similarity float64 `json:"similarity"`
+}
+
+// LintKnowledge health-checks the knowledge store.
+func LintKnowledge() (*LintReport, error) {
+	d := db.Get()
+	report := &LintReport{}
+
+	d.QueryRow(`SELECT COUNT(*) FROM solutions`).Scan(&report.TotalSolutions)
+
+	// Orphan solutions: from abandoned trees or trees that no longer exist
+	d.QueryRow(`SELECT COUNT(*) FROM solutions s
+		LEFT JOIN trees t ON s.tree_id=t.id
+		WHERE t.status='abandoned' OR (s.tree_id IS NOT NULL AND s.tree_id != '' AND t.id IS NULL)`).Scan(&report.OrphanSolutions)
+
+	// Unlinked solutions: no entries in solution_links
+	d.QueryRow(`SELECT COUNT(*) FROM solutions s
+		WHERE NOT EXISTS (SELECT 1 FROM solution_links sl WHERE sl.source_id=s.id OR sl.target_id=s.id)`).Scan(&report.UnlinkedSolutions)
+
+	// Stale solutions: older than 60 days, not compacted, not linked
+	d.QueryRow(`SELECT COUNT(*) FROM solutions
+		WHERE compacted=0
+		AND created_at < datetime('now', '-60 days')
+		AND NOT EXISTS (SELECT 1 FROM solution_links sl WHERE sl.source_id=id OR sl.target_id=id)`).Scan(&report.StaleSolutions)
+
+	if report.UnlinkedSolutions > 0 {
+		report.Suggestions = append(report.Suggestions,
+			fmt.Sprintf("%d solutions have no cross-references. Run retrieve_context on their problems to find connections.", report.UnlinkedSolutions))
+	}
+	if report.StaleSolutions > 0 {
+		report.Suggestions = append(report.Suggestions,
+			fmt.Sprintf("%d solutions are stale (60+ days, no links). Consider compact_analyze or re-evaluation.", report.StaleSolutions))
+	}
+	if report.OrphanSolutions > 0 {
+		report.Suggestions = append(report.Suggestions,
+			fmt.Sprintf("%d solutions are from abandoned trees. Review whether they're still relevant.", report.OrphanSolutions))
+	}
+
+	report.Contradictions = findContradictions()
+
+	if len(report.Suggestions) == 0 {
+		report.Suggestions = append(report.Suggestions, "Knowledge store looks healthy.")
+	}
+
+	LogKnowledgeEvent("lint", "", fmt.Sprintf("total=%d orphan=%d unlinked=%d stale=%d contradictions=%d",
+		report.TotalSolutions, report.OrphanSolutions, report.UnlinkedSolutions, report.StaleSolutions, len(report.Contradictions)))
+
+	return report, nil
+}
+
+// findContradictions finds solution pairs with very similar problems.
+func findContradictions() []Contradiction {
+	d := db.Get()
+	rows, err := d.Query(`SELECT id, problem FROM solutions WHERE compacted=0 ORDER BY created_at DESC LIMIT 100`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+
+	type sol struct {
+		id, problem string
+		tokens      map[string]bool
+	}
+	var sols []sol
+	for rows.Next() {
+		var s sol
+		rows.Scan(&s.id, &s.problem)
+		s.tokens = tokenizeText(s.problem)
+		sols = append(sols, s)
+	}
+
+	var out []Contradiction
+	for i := 0; i < len(sols); i++ {
+		for j := i + 1; j < len(sols); j++ {
+			sim := jaccardSim(sols[i].tokens, sols[j].tokens)
+			if sim >= 0.5 {
+				out = append(out, Contradiction{
+					SolutionA:  sols[i].id,
+					SolutionB:  sols[j].id,
+					ProblemA:   sols[i].problem,
+					ProblemB:   sols[j].problem,
+					Similarity: sim,
+				})
+			}
+		}
+	}
+	return out
+}
+
+// tokenizeText splits text into lowercase word tokens (>2 chars).
+func tokenizeText(text string) map[string]bool {
+	words := map[string]bool{}
+	for _, w := range strings.Fields(strings.ToLower(text)) {
+		clean := strings.Trim(w, ".,;:!?\"'()[]{}")
+		if len(clean) > 2 {
+			words[clean] = true
+		}
+	}
+	return words
+}
+
+// jaccardSim computes |intersection|/|union| of two word sets.
+func jaccardSim(a, b map[string]bool) float64 {
+	if len(a) == 0 || len(b) == 0 {
+		return 0
+	}
+	intersection := 0
+	for w := range a {
+		if b[w] {
+			intersection++
+		}
+	}
+	union := len(a) + len(b) - intersection
+	if union == 0 {
+		return 0
+	}
+	return float64(intersection) / float64(union)
+}
+

@@ -279,6 +279,90 @@ func TestStoreSolutionLogsKnowledgeEvent(t *testing.T) {
 	}
 }
 
+// --- Lint tests ---
+
+func TestLintKnowledge(t *testing.T) {
+	report, err := LintKnowledge()
+	if err != nil {
+		t.Fatalf("LintKnowledge: %v", err)
+	}
+	if report.TotalSolutions < 1 {
+		t.Fatal("expected at least 1 solution from prior tests")
+	}
+	// Suggestions should always be non-empty (either issues or "healthy")
+	if len(report.Suggestions) == 0 {
+		t.Fatal("expected at least 1 suggestion")
+	}
+	// Contradictions should be a slice (possibly empty)
+	_ = report.Contradictions
+	_ = report.OrphanSolutions
+	_ = report.UnlinkedSolutions
+	_ = report.StaleSolutions
+}
+
+func TestLintKnowledgeDetectsContradictions(t *testing.T) {
+	d := db.Get()
+	// Insert two solutions with nearly identical problems
+	d.Exec(`INSERT OR IGNORE INTO trees (id,problem,root_id,search_strategy,max_depth,branching_factor,status,created_at,updated_at)
+		VALUES ('lint-tree','lint test','lint-root','bfs',5,3,'active','2024-01-01T00:00:00Z','2024-01-01T00:00:00Z')`)
+	d.Exec(`INSERT OR IGNORE INTO nodes (id,tree_id,parent_id,thought,score,depth,is_terminal,metadata,created_at)
+		VALUES ('lint-root','lint-tree',NULL,'lint test',0,0,0,'{}','2024-01-01T00:00:00Z')`)
+
+	d.Exec(`INSERT OR IGNORE INTO solutions (id,tree_id,problem,solution,thoughts,path_ids,score,tags,compacted,created_at)
+		VALUES ('contra-1','lint-tree','optimize react rendering performance hooks','use memo','[]','[]',0.8,'[]',0,'2024-06-01T00:00:00Z')`)
+	d.Exec(`INSERT OR IGNORE INTO solutions (id,tree_id,problem,solution,thoughts,path_ids,score,tags,compacted,created_at)
+		VALUES ('contra-2','lint-tree','optimize react rendering performance hooks','avoid memo','[]','[]',0.7,'[]',0,'2024-06-01T00:00:00Z')`)
+
+	report, err := LintKnowledge()
+	if err != nil {
+		t.Fatalf("LintKnowledge: %v", err)
+	}
+	found := false
+	for _, c := range report.Contradictions {
+		if (c.SolutionA == "contra-1" && c.SolutionB == "contra-2") ||
+			(c.SolutionA == "contra-2" && c.SolutionB == "contra-1") {
+			found = true
+			if c.Similarity < 0.5 {
+				t.Fatalf("expected high similarity, got %f", c.Similarity)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected contradiction between contra-1 and contra-2")
+	}
+}
+
+func TestTokenizeText(t *testing.T) {
+	words := tokenizeText("Hello, World! This is a test.")
+	if !words["hello"] {
+		t.Fatal("missing 'hello'")
+	}
+	if !words["world"] {
+		t.Fatal("missing 'world'")
+	}
+	if !words["test"] {
+		t.Fatal("missing 'test'")
+	}
+	if words["is"] {
+		t.Fatal("'is' should be excluded (<=2 chars)")
+	}
+}
+
+func TestJaccardSim(t *testing.T) {
+	a := map[string]bool{"hello": true, "world": true}
+	b := map[string]bool{"hello": true, "world": true}
+	if jaccardSim(a, b) != 1.0 {
+		t.Fatalf("identical: got %f", jaccardSim(a, b))
+	}
+	c := map[string]bool{"foo": true, "bar": true}
+	if jaccardSim(a, c) != 0.0 {
+		t.Fatalf("disjoint: got %f", jaccardSim(a, c))
+	}
+	if jaccardSim(nil, a) != 0.0 {
+		t.Fatal("nil should be 0")
+	}
+}
+
 // --- Knowledge log tests ---
 
 func TestGetKnowledgeLog(t *testing.T) {
