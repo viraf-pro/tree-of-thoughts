@@ -715,4 +715,61 @@ func registerKnowledgeTools(s *server.MCPServer) {
 		}
 		return textResult(map[string]any{"entries": entries, "count": len(entries)}), nil
 	})
+
+	// link_solutions — cross-reference two solutions
+	s.AddTool(mcp.NewTool("link_solutions",
+		mcp.WithDescription("Create a cross-reference between two solutions. Use when solutions address related, contradicting, or overlapping problems. Builds the knowledge graph. Link types: related, supersedes, contradicts, extends."),
+		mcp.WithString("source_id", mcp.Required(), mcp.Description("First solution ID")),
+		mcp.WithString("target_id", mcp.Required(), mcp.Description("Second solution ID")),
+		mcp.WithString("link_type", mcp.Description("related, supersedes, contradicts, or extends"), mcp.DefaultString("related")),
+		mcp.WithString("note", mcp.Description("Why these solutions are linked")),
+	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		src, _ := req.RequireString("source_id")
+		tgt, _ := req.RequireString("target_id")
+		lt := optString(req, "link_type", "related")
+		note := optString(req, "note", "")
+
+		link, err := retrieval.LinkSolutions(src, tgt, lt, note)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return textResult(map[string]any{"message": "Solutions linked.", "link": link}), nil
+	})
+
+	// get_solution_links — view cross-references for a solution
+	s.AddTool(mcp.NewTool("get_solution_links",
+		mcp.WithDescription("View all cross-references for a solution. Shows related, superseding, contradicting, and extending solutions in the knowledge graph."),
+		mcp.WithString("solution_id", mcp.Required()),
+	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		solID, _ := req.RequireString("solution_id")
+		links, err := retrieval.GetSolutionLinks(solID)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return textResult(map[string]any{"solutionId": solID, "links": links, "count": len(links)}), nil
+	})
+
+	// lint_knowledge — health-check the knowledge store
+	s.AddTool(mcp.NewTool("lint_knowledge",
+		mcp.WithDescription("Health-check the knowledge store. Finds orphan solutions, missing cross-references, stale entries, and potential contradictions. Run periodically to maintain knowledge quality."),
+	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		report, err := retrieval.LintKnowledge()
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return textResult(report), nil
+	})
+
+	// knowledge_log — view knowledge evolution timeline
+	s.AddTool(mcp.NewTool("knowledge_log",
+		mcp.WithDescription("View the knowledge evolution timeline. Shows when solutions were stored, linked, refined, or linted. Helps understand how the knowledge base grew over time."),
+		mcp.WithNumber("limit", mcp.Description("Number of entries"), mcp.DefaultNumber(20)),
+	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		limit := optInt(req, "limit", 20)
+		events, err := retrieval.GetKnowledgeLog(limit)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return textResult(map[string]any{"events": events, "count": len(events)}), nil
+	})
 }
