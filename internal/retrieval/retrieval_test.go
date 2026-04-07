@@ -201,6 +201,17 @@ func TestLinkSolutions(t *testing.T) {
 	}
 }
 
+func TestLinkSolutionsShortIDs(t *testing.T) {
+	// Should not panic even with very short IDs (they'll fail FK, but no panic)
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("LinkSolutions panicked with short IDs: %v", r)
+		}
+	}()
+	// These will fail with FK error, but must not panic
+	LinkSolutions("ab", "cd", "related", "short id test")
+}
+
 func TestLinkSolutionsSelfLink(t *testing.T) {
 	_, err := LinkSolutions("link-sol-1", "link-sol-1", "related", "")
 	if err == nil {

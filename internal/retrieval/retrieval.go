@@ -404,7 +404,7 @@ func LinkSolutions(sourceID, targetID, linkType, note string) (*SolutionLink, er
 		return nil, err
 	}
 
-	LogKnowledgeEvent("linked", sourceID, fmt.Sprintf("%s -> %s (%s)", sourceID[:8], targetID[:8], linkType))
+	LogKnowledgeEvent("linked", sourceID, fmt.Sprintf("%s -> %s (%s)", truncID(sourceID), truncID(targetID), linkType))
 
 	return &SolutionLink{
 		ID: id, SourceID: sourceID, TargetID: targetID,
@@ -587,6 +587,13 @@ func tokenizeText(text string) map[string]bool {
 		}
 	}
 	return words
+}
+
+func truncID(id string) string {
+	if len(id) > 8 {
+		return id[:8]
+	}
+	return id
 }
 
 // jaccardSim computes |intersection|/|union| of two word sets.
