@@ -48,7 +48,27 @@ func StoreSolution(treeID, problem, solution string, thoughts, pathIDs []string,
 	_, err := d.Exec(`INSERT INTO solutions (id,tree_id,problem,solution,thoughts,path_ids,score,tags,embedding,created_at)
 		VALUES (?,?,?,?,?,?,?,?,?,?)`,
 		id, treeID, problem, solution, string(thoughtsJSON), string(pathJSON), score, string(tagsJSON), embBlob, ts)
+	if err == nil {
+		autoLinkRelated(id, problem)
+		LogKnowledgeEvent("stored", id, fmt.Sprintf("tree=%s tags=%v", treeID, tags))
+	}
 	return id, err
+}
+
+// autoLinkRelated finds existing solutions similar to the newly stored one and creates links.
+func autoLinkRelated(newID, problem string) {
+	results, err := keywordSearch(problem, 5)
+	if err != nil || len(results) == 0 {
+		return
+	}
+	for _, r := range results {
+		if r.ID == newID {
+			continue
+		}
+		if r.Similarity >= 0.3 {
+			LinkSolutions(newID, r.ID, "related", "auto-linked on store")
+		}
+	}
 }
 
 // Retrieve performs hybrid vector + keyword search.
