@@ -3,6 +3,7 @@ package retrieval
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"math"
 	"regexp"
 	"strings"
@@ -58,15 +59,16 @@ func StoreSolution(treeID, problem, solution string, thoughts, pathIDs []string,
 // autoLinkRelated finds existing solutions similar to the newly stored one and creates links.
 func autoLinkRelated(newID, problem string) {
 	results, err := keywordSearch(problem, 5)
-	if err != nil || len(results) == 0 {
+	if err != nil {
+		log.Printf("autoLinkRelated: keyword search failed: %v", err)
 		return
 	}
 	for _, r := range results {
-		if r.ID == newID {
+		if r.ID == newID || r.Similarity < 0.3 {
 			continue
 		}
-		if r.Similarity >= 0.3 {
-			LinkSolutions(newID, r.ID, "related", "auto-linked on store")
+		if _, err := LinkSolutions(newID, r.ID, "related", "auto-linked on store"); err != nil {
+			log.Printf("autoLinkRelated: link failed: %v", err)
 		}
 	}
 }
@@ -430,11 +432,16 @@ func GetSolutionLinks(solutionID string) ([]SolutionLink, error) {
 	}
 	defer rows.Close()
 
-	var out []SolutionLink
+	out := make([]SolutionLink, 0)
 	for rows.Next() {
 		var l SolutionLink
-		rows.Scan(&l.ID, &l.SourceID, &l.TargetID, &l.LinkType, &l.Note, &l.CreatedAt)
+		if err := rows.Scan(&l.ID, &l.SourceID, &l.TargetID, &l.LinkType, &l.Note, &l.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan solution_links: %w", err)
+		}
 		out = append(out, l)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating solution_links: %w", err)
 	}
 	return out, nil
 }
@@ -454,8 +461,10 @@ type KnowledgeEvent struct {
 func LogKnowledgeEvent(eventType, solutionID, detail string) {
 	d := db.Get()
 	ts := time.Now().UTC().Format(time.RFC3339)
-	d.Exec(`INSERT INTO knowledge_log (event_type,solution_id,detail,created_at)
-		VALUES (?,?,?,?)`, eventType, solutionID, detail, ts)
+	if _, err := d.Exec(`INSERT INTO knowledge_log (event_type,solution_id,detail,created_at)
+		VALUES (?,?,?,?)`, eventType, solutionID, detail, ts); err != nil {
+		log.Printf("knowledge_log insert failed: %v", err)
+	}
 }
 
 // GetKnowledgeLog returns recent knowledge events.
@@ -468,11 +477,16 @@ func GetKnowledgeLog(limit int) ([]KnowledgeEvent, error) {
 	}
 	defer rows.Close()
 
-	var out []KnowledgeEvent
+	out := make([]KnowledgeEvent, 0)
 	for rows.Next() {
 		var e KnowledgeEvent
-		rows.Scan(&e.ID, &e.EventType, &e.SolutionID, &e.Detail, &e.CreatedAt)
+		if err := rows.Scan(&e.ID, &e.EventType, &e.SolutionID, &e.Detail, &e.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan knowledge_log: %w", err)
+		}
 		out = append(out, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating knowledge_log: %w", err)
 	}
 	return out, nil
 }
@@ -561,7 +575,9 @@ func findContradictions() []Contradiction {
 	var sols []sol
 	for rows.Next() {
 		var s sol
-		rows.Scan(&s.id, &s.problem)
+		if err := rows.Scan(&s.id, &s.problem); err != nil {
+			continue
+		}
 		s.tokens = tokenizeText(s.problem)
 		sols = append(sols, s)
 	}
