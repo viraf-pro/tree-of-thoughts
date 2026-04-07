@@ -330,13 +330,13 @@ func TestLintKnowledge(t *testing.T) {
 		t.Fatal("expected at least 1 suggestion")
 	}
 	// Contradictions should be a slice (possibly empty)
-	_ = report.Contradictions
+	_ = report.SimilarPairs
 	_ = report.OrphanSolutions
 	_ = report.UnlinkedSolutions
 	_ = report.StaleSolutions
 }
 
-func TestLintKnowledgeDetectsContradictions(t *testing.T) {
+func TestLintKnowledgeDetectsSimilarPairs(t *testing.T) {
 	d := db.Get()
 	// Insert two solutions with nearly identical problems
 	d.Exec(`INSERT OR IGNORE INTO trees (id,problem,root_id,search_strategy,max_depth,branching_factor,status,created_at,updated_at)
@@ -354,17 +354,17 @@ func TestLintKnowledgeDetectsContradictions(t *testing.T) {
 		t.Fatalf("LintKnowledge: %v", err)
 	}
 	found := false
-	for _, c := range report.Contradictions {
-		if (c.SolutionA == "contra-1" && c.SolutionB == "contra-2") ||
-			(c.SolutionA == "contra-2" && c.SolutionB == "contra-1") {
+	for _, p := range report.SimilarPairs {
+		if (p.SolutionA == "contra-1" && p.SolutionB == "contra-2") ||
+			(p.SolutionA == "contra-2" && p.SolutionB == "contra-1") {
 			found = true
-			if c.Similarity < 0.5 {
-				t.Fatalf("expected high similarity, got %f", c.Similarity)
+			if p.Similarity < 0.5 {
+				t.Fatalf("expected high similarity, got %f", p.Similarity)
 			}
 		}
 	}
 	if !found {
-		t.Fatal("expected contradiction between contra-1 and contra-2")
+		t.Fatal("expected similar pair between contra-1 and contra-2")
 	}
 }
 

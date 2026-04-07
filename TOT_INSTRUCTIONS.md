@@ -43,8 +43,8 @@ server for structured exploration instead of linear chain-of-thought.
 ### Knowledge maintenance (periodic)
 
 1. Call `lint_knowledge` to health-check the knowledge store.
-2. Review the report: orphan solutions, unlinked entries, stale knowledge, contradictions.
-3. For contradictions: compare the two solutions and decide which to keep, or use `link_solutions` with type `contradicts` to flag them.
+2. Review the report: orphan solutions, unlinked entries, stale knowledge, similar pairs.
+3. For similar pairs: compare the two solutions and decide whether they contradict, extend, or duplicate each other. Use `link_solutions` to record the relationship.
 4. For unlinked solutions: use `link_solutions` to connect related entries (types: `related`, `supersedes`, `contradicts`, `extends`).
 5. For stale solutions: consider `compact_analyze` or re-evaluation.
 6. Call `knowledge_log` to review how the knowledge base evolved over time.

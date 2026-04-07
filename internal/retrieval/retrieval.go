@@ -495,16 +495,17 @@ func GetKnowledgeLog(limit int) ([]KnowledgeEvent, error) {
 
 // LintReport summarizes the health of the knowledge store.
 type LintReport struct {
-	TotalSolutions    int             `json:"totalSolutions"`
-	OrphanSolutions   int             `json:"orphanSolutions"`
-	UnlinkedSolutions int             `json:"unlinkedSolutions"`
-	StaleSolutions    int             `json:"staleSolutions"`
-	Contradictions    []Contradiction `json:"contradictions"`
-	Suggestions       []string        `json:"suggestions"`
+	TotalSolutions    int            `json:"totalSolutions"`
+	OrphanSolutions   int            `json:"orphanSolutions"`
+	UnlinkedSolutions int            `json:"unlinkedSolutions"`
+	StaleSolutions    int            `json:"staleSolutions"`
+	SimilarPairs      []SimilarPair  `json:"similarPairs"`
+	Suggestions       []string       `json:"suggestions"`
 }
 
-// Contradiction represents two solutions with high similarity but potentially conflicting content.
-type Contradiction struct {
+// SimilarPair represents two solutions with highly similar problem statements.
+// The LLM should review whether they actually contradict, extend, or duplicate each other.
+type SimilarPair struct {
 	SolutionA  string  `json:"solutionA"`
 	SolutionB  string  `json:"solutionB"`
 	ProblemA   string  `json:"problemA"`
@@ -547,24 +548,31 @@ func LintKnowledge() (*LintReport, error) {
 			fmt.Sprintf("%d solutions are from abandoned trees. Review whether they're still relevant.", report.OrphanSolutions))
 	}
 
-	report.Contradictions = findContradictions()
+	report.SimilarPairs = findSimilarPairs()
+
+	if len(report.SimilarPairs) > 0 {
+		report.Suggestions = append(report.Suggestions,
+			fmt.Sprintf("%d solution pairs have very similar problems. Review whether they contradict, extend, or duplicate each other.", len(report.SimilarPairs)))
+	}
 
 	if len(report.Suggestions) == 0 {
 		report.Suggestions = append(report.Suggestions, "Knowledge store looks healthy.")
 	}
 
-	LogKnowledgeEvent("lint", "", fmt.Sprintf("total=%d orphan=%d unlinked=%d stale=%d contradictions=%d",
-		report.TotalSolutions, report.OrphanSolutions, report.UnlinkedSolutions, report.StaleSolutions, len(report.Contradictions)))
+	LogKnowledgeEvent("lint", "", fmt.Sprintf("total=%d orphan=%d unlinked=%d stale=%d similar=%d",
+		report.TotalSolutions, report.OrphanSolutions, report.UnlinkedSolutions, report.StaleSolutions, len(report.SimilarPairs)))
 
 	return report, nil
 }
 
-// findContradictions finds solution pairs with very similar problems.
-func findContradictions() []Contradiction {
+const maxSimilarPairs = 20
+
+// findSimilarPairs finds solution pairs with very similar problem statements.
+func findSimilarPairs() []SimilarPair {
 	d := db.Get()
 	rows, err := d.Query(`SELECT id, problem FROM solutions WHERE compacted=0 ORDER BY created_at DESC LIMIT 100`)
 	if err != nil {
-		return nil
+		return make([]SimilarPair, 0)
 	}
 	defer rows.Close()
 
@@ -582,12 +590,12 @@ func findContradictions() []Contradiction {
 		sols = append(sols, s)
 	}
 
-	var out []Contradiction
-	for i := 0; i < len(sols); i++ {
-		for j := i + 1; j < len(sols); j++ {
+	out := make([]SimilarPair, 0)
+	for i := 0; i < len(sols) && len(out) < maxSimilarPairs; i++ {
+		for j := i + 1; j < len(sols) && len(out) < maxSimilarPairs; j++ {
 			sim := jaccardSim(sols[i].tokens, sols[j].tokens)
 			if sim >= 0.5 {
-				out = append(out, Contradiction{
+				out = append(out, SimilarPair{
 					SolutionA:  sols[i].id,
 					SolutionB:  sols[j].id,
 					ProblemA:   sols[i].problem,
