@@ -398,10 +398,17 @@ func LinkSolutions(sourceID, targetID, linkType, note string) (*SolutionLink, er
 	id := uuid.NewString()
 	ts := time.Now().UTC().Format(time.RFC3339)
 
-	_, err := d.Exec(`INSERT INTO solution_links (id,source_id,target_id,link_type,note,created_at)
+	res, err := d.Exec(`INSERT OR IGNORE INTO solution_links (id,source_id,target_id,link_type,note,created_at)
 		VALUES (?,?,?,?,?,?)`, id, sourceID, targetID, linkType, note, ts)
 	if err != nil {
 		return nil, err
+	}
+	// If the link already exists (UNIQUE constraint), return without logging
+	if n, _ := res.RowsAffected(); n == 0 {
+		return &SolutionLink{
+			ID: id, SourceID: sourceID, TargetID: targetID,
+			LinkType: linkType, Note: note, CreatedAt: ts,
+		}, nil
 	}
 
 	LogKnowledgeEvent("linked", sourceID, fmt.Sprintf("%s -> %s (%s)", truncID(sourceID), truncID(targetID), linkType))

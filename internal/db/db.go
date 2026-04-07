@@ -64,6 +64,9 @@ func migrate(d *sql.DB) error {
 			return fmt.Errorf("migrate embedding column: %w", err)
 		}
 	}
+	// Ensure unique constraint on solution_links for existing databases.
+	// Creates the index if it doesn't exist; silently succeeds if it does.
+	d.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_sollinks_unique ON solution_links(source_id, target_id, link_type)`)
 	return nil
 }
 
@@ -192,7 +195,8 @@ CREATE TABLE IF NOT EXISTS solution_links (
 	target_id  TEXT NOT NULL REFERENCES solutions(id) ON DELETE CASCADE,
 	link_type  TEXT NOT NULL DEFAULT 'related',
 	note       TEXT NOT NULL DEFAULT '',
-	created_at TEXT NOT NULL
+	created_at TEXT NOT NULL,
+	UNIQUE(source_id, target_id, link_type)
 );
 CREATE INDEX IF NOT EXISTS idx_sollinks_source ON solution_links(source_id);
 CREATE INDEX IF NOT EXISTS idx_sollinks_target ON solution_links(target_id);

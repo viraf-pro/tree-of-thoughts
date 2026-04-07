@@ -201,6 +201,31 @@ func TestLinkSolutions(t *testing.T) {
 	}
 }
 
+func TestLinkSolutionsDuplicatePrevention(t *testing.T) {
+	d := db.Get()
+	d.Exec(`INSERT OR IGNORE INTO solutions (id,problem,solution,thoughts,path_ids,score,tags,compacted,created_at)
+		VALUES ('dup-sol-1','p','s','[]','[]',0,'[]',0,'2024-01-01T00:00:00Z')`)
+	d.Exec(`INSERT OR IGNORE INTO solutions (id,problem,solution,thoughts,path_ids,score,tags,compacted,created_at)
+		VALUES ('dup-sol-2','p','s','[]','[]',0,'[]',0,'2024-01-01T00:00:00Z')`)
+
+	// Link twice with same type
+	_, err := LinkSolutions("dup-sol-1", "dup-sol-2", "related", "first")
+	if err != nil {
+		t.Fatalf("first link: %v", err)
+	}
+	_, err = LinkSolutions("dup-sol-1", "dup-sol-2", "related", "duplicate")
+	if err != nil {
+		t.Fatalf("duplicate link should not error: %v", err)
+	}
+
+	// Should only have 1 link row for this pair+type
+	var count int
+	d.QueryRow(`SELECT COUNT(*) FROM solution_links WHERE source_id='dup-sol-1' AND target_id='dup-sol-2' AND link_type='related'`).Scan(&count)
+	if count != 1 {
+		t.Fatalf("expected 1 link, got %d", count)
+	}
+}
+
 func TestLinkSolutionsShortIDs(t *testing.T) {
 	// Should not panic even with very short IDs (they'll fail FK, but no panic)
 	defer func() {
