@@ -430,6 +430,7 @@ func registerRetrievalTools(s *server.MCPServer) {
 		msg := "No relevant past solutions found."
 		if len(results) > 0 {
 			msg = fmt.Sprintf("Found %d relevant solutions.", len(results))
+			retrieval.LogKnowledgeEvent("retrieved", "", fmt.Sprintf("query=%q matched=%d", truncate(query, 80), len(results)))
 		}
 		return textResult(map[string]any{"message": msg, "results": results}), nil
 	})
