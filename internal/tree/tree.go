@@ -794,6 +794,89 @@ func GetTreeLinks(treeID string) ([]TreeLink, error) {
 	return out, nil
 }
 
+// --- Progressive-disclosure context for resuming a tree ---
+
+// TreeContext provides progressive-disclosure context for resuming a tree.
+type TreeContext struct {
+	// Tier 1: Always included — enough to resume work
+	TreeID        string         `json:"treeId"`
+	Problem       string         `json:"problem"`
+	Status        string         `json:"status"`
+	Strategy      string         `json:"searchStrategy"`
+	NodeCount     int            `json:"nodeCount"`
+	BestPath      *PathResult    `json:"bestPath"`
+	FrontierNodes []FrontierNode `json:"frontierNodes"`
+
+	// Tier 2: Included when detail="full" — decision history
+	PrunedBranches []PrunedBranch `json:"prunedBranches,omitempty"`
+	AllPaths       []PathResult   `json:"allPaths,omitempty"`
+	Links          []TreeLink     `json:"links,omitempty"`
+}
+
+// FrontierNode is a simplified frontier entry for context.
+type FrontierNode struct {
+	ID         string  `json:"id"`
+	Thought    string  `json:"thought"`
+	Score      float64 `json:"score"`
+	Depth      int     `json:"depth"`
+	Evaluation *string `json:"evaluation,omitempty"`
+}
+
+// PrunedBranch summarizes a branch that was backtracked/pruned.
+type PrunedBranch struct {
+	NodeID  string `json:"nodeId"`
+	Thought string `json:"thought"`
+	Depth   int    `json:"depth"`
+}
+
+// GetTreeContext builds progressive-disclosure context for a tree.
+// detail: "summary" (tier 1 only) or "full" (tier 1 + tier 2)
+func GetTreeContext(treeID, detail string) (*TreeContext, error) {
+	t, err := GetTree(treeID)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx := &TreeContext{
+		TreeID:    t.ID,
+		Problem:   t.Problem,
+		Status:    t.Status,
+		Strategy:  t.SearchStrategy,
+		NodeCount: NodeCount(treeID),
+	}
+
+	ctx.BestPath, _ = GetBestPath(treeID)
+
+	frontier, _ := GetFrontier(treeID)
+	ctx.FrontierNodes = make([]FrontierNode, 0, len(frontier))
+	for _, n := range frontier {
+		ctx.FrontierNodes = append(ctx.FrontierNodes, FrontierNode{
+			ID: n.ID, Thought: n.Thought, Score: n.Score,
+			Depth: n.Depth, Evaluation: n.Evaluation,
+		})
+	}
+
+	if detail == "full" {
+		d := db.Get()
+		rows, err := d.Query(`SELECT id, thought, depth FROM nodes
+			WHERE tree_id=? AND evaluation='impossible' ORDER BY depth ASC`, treeID)
+		if err == nil {
+			defer rows.Close()
+			ctx.PrunedBranches = make([]PrunedBranch, 0)
+			for rows.Next() {
+				var p PrunedBranch
+				rows.Scan(&p.NodeID, &p.Thought, &p.Depth)
+				ctx.PrunedBranches = append(ctx.PrunedBranches, p)
+			}
+		}
+
+		ctx.AllPaths, _ = GetAllPaths(treeID)
+		ctx.Links, _ = GetTreeLinks(treeID)
+	}
+
+	return ctx, nil
+}
+
 // --- Smart route: "what should I work on next" ---
 
 // SuggestNextWork returns the most promising tree to work on.

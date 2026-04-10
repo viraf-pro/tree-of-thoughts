@@ -683,3 +683,69 @@ func TestSuggestNextWork(t *testing.T) {
 		t.Fatalf("action: got %q, want continue", action)
 	}
 }
+
+// --- GetTreeContext tests ---
+
+func TestGetTreeContextSummary(t *testing.T) {
+	tr, root, _ := CreateTree("context summary test", "beam", 5, 3)
+	c1, _ := AddThought(tr.ID, root.ID, "approach A", nil)
+	EvaluateThought(tr.ID, c1.ID, "sure", nil)
+
+	ctx, err := GetTreeContext(tr.ID, "summary")
+	if err != nil {
+		t.Fatalf("GetTreeContext: %v", err)
+	}
+	if ctx.TreeID != tr.ID {
+		t.Fatalf("treeId: got %q", ctx.TreeID)
+	}
+	if ctx.Problem != "context summary test" {
+		t.Fatalf("problem: got %q", ctx.Problem)
+	}
+	if ctx.Strategy != "beam" {
+		t.Fatalf("strategy: got %q", ctx.Strategy)
+	}
+	if ctx.NodeCount < 2 {
+		t.Fatalf("nodeCount: got %d, want >= 2", ctx.NodeCount)
+	}
+	if len(ctx.FrontierNodes) == 0 {
+		t.Fatal("expected frontier nodes")
+	}
+	if ctx.PrunedBranches != nil {
+		t.Fatal("summary should not include pruned branches")
+	}
+}
+
+func TestGetTreeContextFull(t *testing.T) {
+	tr, root, _ := CreateTree("context full test", "bfs", 5, 3)
+	good, _ := AddThought(tr.ID, root.ID, "good approach", nil)
+	EvaluateThought(tr.ID, good.ID, "sure", nil)
+	bad, _ := AddThought(tr.ID, root.ID, "bad approach", nil)
+	EvaluateThought(tr.ID, bad.ID, "impossible", nil)
+
+	ctx, err := GetTreeContext(tr.ID, "full")
+	if err != nil {
+		t.Fatalf("GetTreeContext full: %v", err)
+	}
+	if ctx.PrunedBranches == nil {
+		t.Fatal("full should include pruned branches")
+	}
+	found := false
+	for _, p := range ctx.PrunedBranches {
+		if p.Thought == "bad approach" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("pruned branches should include 'bad approach'")
+	}
+	if ctx.AllPaths == nil {
+		t.Fatal("full should include all paths")
+	}
+}
+
+func TestGetTreeContextNotFound(t *testing.T) {
+	_, err := GetTreeContext("nonexistent-id", "summary")
+	if err == nil {
+		t.Fatal("expected error for nonexistent tree")
+	}
+}
