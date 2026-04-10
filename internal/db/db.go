@@ -67,6 +67,17 @@ func migrate(d *sql.DB) error {
 	// Ensure unique constraint on solution_links for existing databases.
 	// Creates the index if it doesn't exist; silently succeeds if it does.
 	d.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_sollinks_unique ON solution_links(source_id, target_id, link_type)`)
+	// Add confidence + source columns to solution_links for existing databases
+	if _, err := d.Exec(`ALTER TABLE solution_links ADD COLUMN confidence REAL NOT NULL DEFAULT 1.0`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column") {
+			return fmt.Errorf("migrate solution_links confidence: %w", err)
+		}
+	}
+	if _, err := d.Exec(`ALTER TABLE solution_links ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column") {
+			return fmt.Errorf("migrate solution_links source: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -195,6 +206,8 @@ CREATE TABLE IF NOT EXISTS solution_links (
 	target_id  TEXT NOT NULL REFERENCES solutions(id) ON DELETE CASCADE,
 	link_type  TEXT NOT NULL DEFAULT 'related',
 	note       TEXT NOT NULL DEFAULT '',
+	confidence REAL NOT NULL DEFAULT 1.0,
+	source     TEXT NOT NULL DEFAULT 'manual',
 	created_at TEXT NOT NULL,
 	UNIQUE(source_id, target_id, link_type)
 );

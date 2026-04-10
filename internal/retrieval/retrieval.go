@@ -67,7 +67,7 @@ func autoLinkRelated(newID, problem string) {
 		if r.ID == newID || r.Similarity < 0.3 {
 			continue
 		}
-		if _, err := LinkSolutions(newID, r.ID, "related", "auto-linked on store"); err != nil {
+		if _, err := LinkSolutionsWithConfidence(newID, r.ID, "related", "auto-linked on store", r.Similarity, "auto"); err != nil {
 			log.Printf("autoLinkRelated: link failed: %v", err)
 		}
 	}
@@ -378,12 +378,14 @@ func hasOverlap(a, b []string) bool {
 
 // SolutionLink represents a cross-reference between two solutions.
 type SolutionLink struct {
-	ID        string `json:"id"`
-	SourceID  string `json:"sourceId"`
-	TargetID  string `json:"targetId"`
-	LinkType  string `json:"linkType"`
-	Note      string `json:"note"`
-	CreatedAt string `json:"createdAt"`
+	ID         string  `json:"id"`
+	SourceID   string  `json:"sourceId"`
+	TargetID   string  `json:"targetId"`
+	LinkType   string  `json:"linkType"`
+	Note       string  `json:"note"`
+	Confidence float64 `json:"confidence"`
+	Source     string  `json:"source"` // "manual" or "auto"
+	CreatedAt  string  `json:"createdAt"`
 }
 
 var validSolutionLinkTypes = map[string]bool{
@@ -391,7 +393,14 @@ var validSolutionLinkTypes = map[string]bool{
 }
 
 // LinkSolutions creates a cross-reference between two solutions.
+// confidence: 0.0-1.0 (default 1.0 for manual links)
+// source: "manual" or "auto"
 func LinkSolutions(sourceID, targetID, linkType, note string) (*SolutionLink, error) {
+	return LinkSolutionsWithConfidence(sourceID, targetID, linkType, note, 1.0, "manual")
+}
+
+// LinkSolutionsWithConfidence creates a link with explicit confidence and source.
+func LinkSolutionsWithConfidence(sourceID, targetID, linkType, note string, confidence float64, source string) (*SolutionLink, error) {
 	if sourceID == targetID {
 		return nil, fmt.Errorf("cannot link a solution to itself")
 	}
@@ -403,31 +412,32 @@ func LinkSolutions(sourceID, targetID, linkType, note string) (*SolutionLink, er
 	id := uuid.NewString()
 	ts := time.Now().UTC().Format(time.RFC3339)
 
-	res, err := d.Exec(`INSERT OR IGNORE INTO solution_links (id,source_id,target_id,link_type,note,created_at)
-		VALUES (?,?,?,?,?,?)`, id, sourceID, targetID, linkType, note, ts)
+	res, err := d.Exec(`INSERT OR IGNORE INTO solution_links (id,source_id,target_id,link_type,note,confidence,source,created_at)
+		VALUES (?,?,?,?,?,?,?,?)`, id, sourceID, targetID, linkType, note, confidence, source, ts)
 	if err != nil {
 		return nil, err
 	}
-	// If the link already exists (UNIQUE constraint), return without logging
 	if n, _ := res.RowsAffected(); n == 0 {
 		return &SolutionLink{
 			ID: id, SourceID: sourceID, TargetID: targetID,
-			LinkType: linkType, Note: note, CreatedAt: ts,
+			LinkType: linkType, Note: note, Confidence: confidence,
+			Source: source, CreatedAt: ts,
 		}, nil
 	}
 
-	LogKnowledgeEvent("linked", sourceID, fmt.Sprintf("%s -> %s (%s)", truncID(sourceID), truncID(targetID), linkType))
+	LogKnowledgeEvent("linked", sourceID, fmt.Sprintf("%s -> %s (%s conf=%.2f)", truncID(sourceID), truncID(targetID), linkType, confidence))
 
 	return &SolutionLink{
 		ID: id, SourceID: sourceID, TargetID: targetID,
-		LinkType: linkType, Note: note, CreatedAt: ts,
+		LinkType: linkType, Note: note, Confidence: confidence,
+		Source: source, CreatedAt: ts,
 	}, nil
 }
 
 // GetSolutionLinks returns all links where the given solution is source or target.
 func GetSolutionLinks(solutionID string) ([]SolutionLink, error) {
 	d := db.Get()
-	rows, err := d.Query(`SELECT id,source_id,target_id,link_type,note,created_at
+	rows, err := d.Query(`SELECT id,source_id,target_id,link_type,note,confidence,source,created_at
 		FROM solution_links WHERE source_id=? OR target_id=? ORDER BY created_at DESC`,
 		solutionID, solutionID)
 	if err != nil {
@@ -438,7 +448,7 @@ func GetSolutionLinks(solutionID string) ([]SolutionLink, error) {
 	out := make([]SolutionLink, 0)
 	for rows.Next() {
 		var l SolutionLink
-		if err := rows.Scan(&l.ID, &l.SourceID, &l.TargetID, &l.LinkType, &l.Note, &l.CreatedAt); err != nil {
+		if err := rows.Scan(&l.ID, &l.SourceID, &l.TargetID, &l.LinkType, &l.Note, &l.Confidence, &l.Source, &l.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan solution_links: %w", err)
 		}
 		out = append(out, l)

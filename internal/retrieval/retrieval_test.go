@@ -199,6 +199,53 @@ func TestLinkSolutions(t *testing.T) {
 	if link.ID == "" {
 		t.Fatal("expected non-empty link ID")
 	}
+	// Default manual link should have confidence=1.0 and source=manual
+	if link.Confidence != 1.0 {
+		t.Fatalf("confidence: got %f, want 1.0", link.Confidence)
+	}
+	if link.Source != "manual" {
+		t.Fatalf("source: got %q, want manual", link.Source)
+	}
+}
+
+func TestLinkSolutionsWithConfidence(t *testing.T) {
+	d := db.Get()
+	d.Exec(`INSERT OR IGNORE INTO solutions (id,problem,solution,thoughts,path_ids,score,tags,compacted,created_at)
+		VALUES ('conf-sol-1','p','s','[]','[]',0,'[]',0,'2024-01-01T00:00:00Z')`)
+	d.Exec(`INSERT OR IGNORE INTO solutions (id,problem,solution,thoughts,path_ids,score,tags,compacted,created_at)
+		VALUES ('conf-sol-2','p','s','[]','[]',0,'[]',0,'2024-01-01T00:00:00Z')`)
+
+	link, err := LinkSolutionsWithConfidence("conf-sol-1", "conf-sol-2", "related", "auto test", 0.65, "auto")
+	if err != nil {
+		t.Fatalf("LinkSolutionsWithConfidence: %v", err)
+	}
+	if link.Confidence != 0.65 {
+		t.Fatalf("confidence: got %f, want 0.65", link.Confidence)
+	}
+	if link.Source != "auto" {
+		t.Fatalf("source: got %q, want auto", link.Source)
+	}
+
+	// Verify it reads back correctly
+	links, err := GetSolutionLinks("conf-sol-1")
+	if err != nil {
+		t.Fatalf("GetSolutionLinks: %v", err)
+	}
+	found := false
+	for _, l := range links {
+		if l.TargetID == "conf-sol-2" {
+			found = true
+			if l.Confidence != 0.65 {
+				t.Fatalf("read back confidence: got %f", l.Confidence)
+			}
+			if l.Source != "auto" {
+				t.Fatalf("read back source: got %q", l.Source)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("link not found in GetSolutionLinks")
+	}
 }
 
 func TestLinkSolutionsDuplicatePrevention(t *testing.T) {
