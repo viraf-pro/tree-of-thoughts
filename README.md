@@ -1,6 +1,6 @@
 # Tree of Thoughts MCP
 
-A single-binary MCP server for tree-structured reasoning with persistent storage, hybrid retrieval, an autonomous experiment runner, and a live web dashboard.
+A single-binary MCP server for tree-structured reasoning with persistent storage, hybrid retrieval, a compounding knowledge graph, web research ingestion, an autonomous experiment runner, and a live web dashboard.
 
 Built on the [Tree of Thoughts](https://arxiv.org/abs/2305.10601) framework (Yao et al., 2023). The server gives LLMs structured exploration over multiple reasoning paths with evaluation, backtracking, and search algorithms, instead of linear chain-of-thought.
 
@@ -17,7 +17,7 @@ Tree of Thoughts fixes this by making the AI think more like a human solving a h
 
 Think of it like a chess player who considers multiple moves ahead on different branches, instead of just playing the first move that looks okay.
 
-Everything the AI figures out gets saved in a database. Next time a similar problem comes up, it remembers past solutions and builds on them instead of starting from scratch — a notebook that gets smarter over time.
+Everything the AI figures out gets saved in a **compounding knowledge graph**. Solutions are cross-referenced, tagged with confidence scores, and analyzed for topology (god nodes, communities, bridge connections). Next time a similar problem comes up, it remembers past solutions and builds on them — a notebook that gets smarter over time.
 
 ## What it does
 
@@ -25,11 +25,28 @@ Everything the AI figures out gets saved in a database. Next time a similar prob
 
 **Deep research.** Unlike greedy beam search that follows a single path, deep research explores all viable branches before concluding. The `get_frontier` tool shows all expandable nodes without consuming them, and `get_all_paths` ranks every explored branch for comparison. This prevents premature conclusions and surfaces non-obvious solutions.
 
-**Persistent storage.** All trees, nodes, solutions, and experiment results live in a SQLite database. Survives restarts. A single `.db` file holds everything.
+**Compounding knowledge graph.** Solutions are automatically cross-referenced when stored. Each link carries a confidence score (0.0-1.0) and source label (manual vs auto). Graph topology analysis identifies god nodes (most connected solutions), communities (clusters of related knowledge), and bridge edges (surprising cross-domain connections). Knowledge compounds across sessions — it doesn't just accumulate, it interconnects.
+
+**Web research ingestion.** The `ingest_url` tool fetches web pages (articles, docs, papers) and stores their content as solutions for future retrieval. Secure fetching: HTTP/HTTPS only, localhost/metadata endpoints blocked, 1MB size cap, redirect validation. HTML is stripped to clean text with title extraction.
+
+**Knowledge quality sensors.** Three computational feedback tools maintain knowledge health:
+- `lint_knowledge` — structural health-check with actionable remediations (specific tool calls to fix each issue)
+- `drift_scan` — entropy detection (duplicate trees, abandoned trees with value, never-retrieved solutions)
+- `knowledge_report` — structured overview of what the knowledge base knows (the "map" agents read before querying)
+
+**Design rationale capture.** When solutions are stored, the system auto-generates a rationale from the tree exploration: "Evaluated 3 branches. Selected: X (score 0.85). Considered: Y (score 0.62)." This captures *why* a solution was chosen, not just what it is.
+
+**Token-budgeted retrieval.** The `retrieve_context` tool accepts an optional `max_tokens` parameter to cap response size. Solutions are truncated to fit within the budget, reducing context window consumption.
+
+**Persistent storage.** All trees, nodes, solutions, links, and knowledge events live in a SQLite database. Survives restarts. A single `.db` file holds everything.
 
 **Hybrid retrieval.** Past solutions are stored with embeddings. When a new problem arrives, the server searches by vector similarity (cosine distance) and keyword matching (FTS5), then merges the results. Solutions that match on both get boosted. Knowledge compounds across sessions.
 
 **Smart routing.** Before creating a new tree, `route_problem` checks existing trees using embedding cosine similarity (primary) with Jaccard keyword overlap (fallback). When both signals agree, a hybrid boost is applied. This prevents duplicate trees across sessions even when the problem is rephrased.
+
+**Progressive disclosure.** The `get_tree_context` tool provides tiered context for resuming trees: summary tier (problem, status, best path, frontier) or full tier (adds pruned branches, all paths, cross-tree links). Agents get exactly the context they need without overwhelming their context window.
+
+**Obsidian vault export.** Export the entire knowledge base as an Obsidian vault with interlinked markdown files, YAML frontmatter, wiki-links between solutions, and a tag-grouped index. Browse your knowledge graph visually in Obsidian's graph view.
 
 **Experiment runner.** An optional autoresearch-style loop: modify code, run training/evaluation, parse the metric, keep or discard, repeat. The ToT tree guides which experiments to try. Inspired by [karpathy/autoresearch](https://github.com/karpathy/autoresearch).
 
@@ -82,20 +99,28 @@ make all
 
 ## CLI mode
 
-The binary doubles as a lightweight CLI for scripting and quick queries (~1-2k tokens vs 10-50k for the full MCP tool schema).
+The binary doubles as a lightweight CLI for scripting, CI pipelines, and agent sensor feedback (~1-2k tokens vs 10-50k for the full MCP tool schema).
 
 ```bash
-./tot-mcp help                     # Show commands
-./tot-mcp suggest                  # What should I work on next?
-./tot-mcp list                     # List all trees
-./tot-mcp show <tree_id>           # Show tree summary and best path
-./tot-mcp route "problem text"     # Check if problem matches existing tree
-./tot-mcp create "problem text"    # Create a new tree (default: beam)
-./tot-mcp ready                    # Show active trees with frontier nodes
-./tot-mcp audit [tree_id]          # View audit trail (last 20 entries)
-./tot-mcp stats                    # Retrieval store statistics
-./tot-mcp compact                  # Find solutions eligible for compaction
+./tot-mcp help                          # Show commands
+./tot-mcp suggest                       # What should I work on next?
+./tot-mcp list                          # List all trees
+./tot-mcp show <tree_id>                # Show tree summary and best path
+./tot-mcp route "problem text"          # Check if problem matches existing tree
+./tot-mcp create "problem text"         # Create a new tree (default: beam)
+./tot-mcp ready                         # Show active trees with frontier nodes
+./tot-mcp audit [tree_id]               # View audit trail (last 20 entries)
+./tot-mcp stats                         # Retrieval store statistics
+./tot-mcp compact                       # Find solutions eligible for compaction
+./tot-mcp lint                          # Knowledge store health-check (JSON)
+./tot-mcp drift                         # Entropy/drift scan (JSON)
+./tot-mcp report                        # Knowledge base overview (JSON)
+./tot-mcp health                        # Machine-readable health summary (JSON)
+./tot-mcp ingest <url> [--tags a,b]     # Fetch URL and store as solution
+./tot-mcp export --obsidian <dir>       # Export as Obsidian vault
 ```
+
+The `lint`, `drift`, `report`, and `health` commands output structured JSON, making them usable as computational feedback sensors in CI pipelines, pre-commit hooks, or background monitoring.
 
 ## Connect to Claude Desktop
 
@@ -154,24 +179,9 @@ Create the file if it doesn't exist, then add:
 }
 ```
 
-With an embedding API key:
-
-```json
-{
-  "mcpServers": {
-    "tree-of-thoughts": {
-      "command": "/absolute/path/to/tot-mcp",
-      "env": {
-        "OPENAI_API_KEY": "sk-..."
-      }
-    }
-  }
-}
-```
-
 Restart ChatGPT after saving. The tools will appear in the toolbox icon at the bottom of the chat input.
 
-> **Note:** ChatGPT currently supports tools only — prompts and resources are not yet supported. All 30 tot-mcp tools are tool-type, so everything works.
+> **Note:** ChatGPT currently supports tools only — prompts and resources are not yet supported. All 39 tot-mcp tools are tool-type, so everything works.
 
 ## Configuration
 
@@ -209,7 +219,7 @@ Force a specific provider with `TOT_EMBED_PROVIDER` (local, openai, voyage, or o
 
 The local provider uses [Hugot](https://github.com/knights-analytics/hugot) with a pure Go ONNX backend. Zero CGO. The single-binary promise is preserved.
 
-## Tools (30)
+## Tools (39)
 
 ### Tree operations (10)
 
@@ -226,12 +236,13 @@ The local provider uses [Hugot](https://github.com/knights-analytics/hugot) with
 | `inspect_node` | View a node, its children, and the full path from root. |
 | `list_trees` | List all reasoning trees in the database. Auto-pauses stale trees. |
 
-### Deep research (2)
+### Deep research (3)
 
 | Tool | Description |
 |---|---|
 | `get_frontier` | List all expandable frontier nodes ranked by score **without removing them**. Unlike `search_step`, this is non-destructive. Use to see all options before deciding which branches to expand. Essential for deep research. |
 | `get_all_paths` | Return all paths to leaf and terminal nodes, ranked by average score. Use to compare all explored branches before marking a solution. |
+| `get_tree_context` | Progressive-disclosure context for resuming a tree. `detail="summary"` returns problem, status, best path, frontier. `detail="full"` adds pruned branches, all paths, and cross-tree links. |
 
 ### Tree lifecycle (4)
 
@@ -242,13 +253,35 @@ The local provider uses [Hugot](https://github.com/knights-analytics/hugot) with
 | `abandon_tree` | Mark a tree as abandoned. Tree stays in the database but is excluded from routing. |
 | `suggest_next` | Zero-arg "what should I work on next?" Returns the most promising active or paused tree. |
 
-### Retrieval (3)
+### Knowledge store (4)
 
 | Tool | Description |
 |---|---|
-| `retrieve_context` | Hybrid search past solutions. Vector similarity + FTS5 keyword matching. Results merged, hybrid matches boosted 20%. |
-| `store_solution` | Save a completed solution with tags. Generates an embedding for future semantic search. Links back to the tree and best path. |
+| `retrieve_context` | Hybrid search past solutions. Vector similarity + FTS5 keyword matching. Results merged, hybrid matches boosted 20%. Optional `max_tokens` caps response size. |
+| `store_solution` | Save a completed solution with tags. Generates an embedding for future semantic search. Auto-generates design rationale from tree exploration. Auto-links to similar existing solutions with confidence scores. |
 | `retrieval_stats` | Total solutions, embedding coverage, compaction stats. |
+| `ingest_url` | Fetch a web page (article, docs, paper) and store its content as a solution. HTTP/HTTPS only, 1MB size cap, secure redirect validation. |
+
+### Knowledge graph (6)
+
+| Tool | Description |
+|---|---|
+| `link_solutions` | Create a cross-reference between solutions with confidence score (0.0-1.0) and source label (manual/auto). Link types: related, supersedes, contradicts, extends. |
+| `get_solution_links` | View all cross-references for a solution with confidence scores. |
+| `link_trees` | Create a dependency between two trees (depends_on, informs, supersedes, related). |
+| `get_tree_links` | View all cross-tree dependencies and relationships. |
+| `knowledge_graph` | Analyze graph topology: god nodes (most connected solutions), communities (connected components with tag aggregation), bridge edges (cross-community connections). |
+| `knowledge_report` | Structured overview: top solutions, tag coverage, graph summary, recent events, suggested queries. The "map" agents should read before querying. |
+
+### Quality & maintenance (5)
+
+| Tool | Description |
+|---|---|
+| `lint_knowledge` | Health-check: orphan solutions, missing cross-references, stale entries, similar pairs. Returns **remediations** — specific tool calls to fix each issue (positive prompt injection). |
+| `drift_scan` | Entropy detection: duplicate trees with similar problems, abandoned trees with valuable content, solutions that were never retrieved. Returns remediations. |
+| `knowledge_log` | View the knowledge evolution timeline: stored, linked, retrieved, lint, drift_scan events. |
+| `audit_log` | View the audit trail of tool calls for debugging and decision tracing. |
+| `open_dashboard` | Returns the dashboard URL. Optionally links directly to a specific tree. |
 
 ### Compaction (3)
 
@@ -257,14 +290,6 @@ The local provider uses [Hugot](https://github.com/knights-analytics/hugot) with
 | `compact_analyze` | Find solutions older than N days eligible for compression. Returns full content for summary generation. Default: 30 days. |
 | `compact_apply` | Replace a solution's detailed thoughts with a compressed summary. Original archived and restorable. Embedding stays intact. |
 | `compact_restore` | Restore a compacted solution to its original full content from the archive. |
-
-### Knowledge graph (3)
-
-| Tool | Description |
-|---|---|
-| `link_trees` | Create a dependency between two trees (depends_on, informs, supersedes, related). |
-| `get_tree_links` | View all cross-tree dependencies and relationships. |
-| `audit_log` | View the audit trail of tool calls for debugging and decision tracing. |
 
 ### Experiment runner (4)
 
@@ -275,30 +300,25 @@ The local provider uses [Hugot](https://github.com/knights-analytics/hugot) with
 | `execute_experiment` | Run the command, parse the metric, auto-evaluate the thought node, keep or git-reset. |
 | `experiment_history` | View experiment stats: total runs, success rate, best metric, crash count. |
 
-### Dashboard (1)
-
-| Tool | Description |
-|---|---|
-| `open_dashboard` | Returns the dashboard URL. Optionally links directly to a specific tree. |
-
 ## Reasoning workflows
 
 ### Standard ToT loop
 
 ```
-0. route_problem("Solve problem X")              → "create" (no match)
-1. create_tree("Solve problem X", strategy="beam", branching_factor=3)
-2. retrieve_context("problem X keywords")         # check past solutions
-3. generate_thoughts(root_id, [idea_1, idea_2, idea_3])
-4. evaluate_thought(node_1, "sure", 0.8)
+0. suggest_next()                                   → "create" (nothing to resume)
+1. route_problem("Solve problem X")                 → "create" (no match)
+2. create_tree("Solve problem X", strategy="beam", branching_factor=3)
+3. retrieve_context("problem X keywords")            # check past solutions
+4. generate_thoughts(root_id, [idea_1, idea_2, idea_3])
+5. evaluate_thought(node_1, "sure", 0.8)
    evaluate_thought(node_2, "maybe", 0.5)
-   evaluate_thought(node_3, "impossible")          # pruned
-5. search_step()                                    → node_1
-6. generate_thoughts(node_1, [refinement_a, refinement_b])
-7. evaluate_thought(...) → search_step() → ... repeat ...
-8. mark_solution(winning_node)
-9. get_best_path()                                  # extract full chain
-10. store_solution(tree_id, "solution text", tags)  # save for retrieval
+   evaluate_thought(node_3, "impossible")             # pruned
+6. search_step()                                      → node_1
+7. generate_thoughts(node_1, [refinement_a, refinement_b])
+8. evaluate_thought(...) → search_step() → ... repeat ...
+9. mark_solution(winning_node)
+10. get_best_path()                                   # extract full chain
+11. store_solution(tree_id, "solution text", tags)    # auto-links, auto-rationale
 ```
 
 ### Deep research workflow
@@ -323,13 +343,51 @@ For complex problems with multiple viable approaches, expand ALL promising branc
    → #1 avg=0.68 A → detail_2 → risk_mitigation
      #2 avg=0.66 A → detail_1 → diagnostic_pathway
      #3 avg=0.61 B → variant_3 → cost_analysis
-     ...
 
 8. mark_solution(best_path_leaf)
 9. store_solution(tree_id, "comparative analysis", tags)
 ```
 
-The key difference: `get_frontier` shows all options without popping, and `get_all_paths` enables informed comparison across branches before committing to a solution.
+### Resuming a tree (progressive disclosure)
+
+```
+1. suggest_next()                    → "continue", tree_id
+2. get_tree_context(tree_id, "summary")
+   → problem, status, best path, frontier nodes
+3. get_tree_context(tree_id, "full")   # if more context needed
+   → adds pruned branches, all paths, cross-tree links
+4. resume_tree(tree_id)
+5. ... continue exploration ...
+```
+
+### Web research ingestion
+
+```
+1. ingest_url("https://arxiv.org/abs/2305.10601", tags=["paper", "tot"])
+   → fetches, strips HTML, stores as solution with "ingested" tag
+2. ingest_url("https://docs.example.com/api", tags=["docs"])
+3. retrieve_context("tree of thoughts")
+   → finds ingested articles alongside tree-generated solutions
+```
+
+### Knowledge maintenance
+
+```
+1. lint_knowledge()                  # structural health-check
+   → { unlinked: 5, orphan: 2, remediations: [...] }
+   # Each remediation has the exact tool call to fix it
+
+2. drift_scan()                      # entropy detection
+   → { duplicateTreePairs: [...], abandonedWithValue: [...] }
+
+3. knowledge_report()                # the "map" of what you know
+   → { topSolutions, tagCoverage, communities, suggestedQueries }
+
+4. knowledge_graph()                 # topology analysis
+   → { godNodes, communities, bridges }
+
+5. export --obsidian ./vault         # browse in Obsidian
+```
 
 ### Tree lifecycle
 
@@ -416,9 +474,8 @@ Disable with `TOT_NO_DASHBOARD=1`. Change the port with `TOT_DASHBOARD_PORT=8080
 
 ```
 tot-mcp/
-  main.go                 Entry point. 30 tool registrations. Dashboard startup. CLI dispatch.
-  cli.go                  Lightweight CLI for scripting (~1-2k tokens vs 10-50k MCP).
-  Makefile                Cross-compilation targets.
+  main.go                 Entry point. 39 tool registrations. Dashboard startup. CLI dispatch.
+  cli.go                  Lightweight CLI with 16 commands for scripting and CI sensors.
   internal/
     db/
       db.go               SQLite init, schema migration, WAL mode. Pure Go (modernc.org/sqlite).
@@ -427,9 +484,17 @@ tot-mcp/
       tree.go             Tree CRUD. BFS/DFS/Beam search. Frontier management. Recursive CTE for
                            path extraction and subtree pruning. Routing with hybrid embedding +
                            keyword scoring. Deep research (get_frontier, get_all_paths).
+                           Progressive-disclosure context (GetTreeContext).
     retrieval/
       retrieval.go        Hybrid search: cosine similarity (pure Go) + FTS5 keyword matching.
-                           Solution storage with embeddings. Compaction (memory decay).
+                           Solution storage with embeddings and design rationale.
+                           Knowledge graph: solution cross-references with confidence labels,
+                           graph topology analysis (god nodes, communities, bridges).
+                           Knowledge report, lint, drift scan, compaction.
+                           Obsidian vault export. Token-budgeted retrieval.
+    web/
+      fetch.go            Secure URL fetching: HTTP/HTTPS validation, size cap, redirect
+                           validation, HTML-to-text extraction, title extraction.
     embeddings/
       embeddings.go       Pluggable providers: local (Hugot ONNX), OpenAI, Voyage AI, Ollama,
                            noop fallback. Thread-safe via sync.Once. Pure Go cosine similarity.
@@ -452,16 +517,18 @@ tot-mcp/
 trees               -- Tree metadata (id, problem, strategy, status, embedding BLOB)
 nodes               -- Thought nodes (id, tree_id, parent_id, thought, evaluation, score, depth)
 frontier            -- Expandable nodes (tree_id, node_id, priority)
-solutions           -- Stored solutions with embeddings (problem, solution, thoughts, tags, embedding BLOB)
+solutions           -- Stored solutions with embeddings, rationale, and design reasoning
 solutions_fts       -- FTS5 index for keyword search
 solution_archive    -- Original content of compacted solutions (for restore)
+solution_links      -- Cross-references between solutions (type, confidence, source)
+knowledge_log       -- Knowledge evolution events (stored, linked, retrieved, lint, drift)
 experiment_configs  -- One config per tree (target file, run command, metric regex)
 experiment_results  -- Every experiment run (metric, duration, status, commit hash, kept)
 audit_log           -- Tool call audit trail (tree_id, node_id, tool, input, result)
 tree_links          -- Cross-tree relationships (source, target, type, note)
 ```
 
-All tables use WAL mode and foreign keys. Recursive CTEs handle path extraction (node to root) and subtree pruning (node to all descendants). Embedding BLOBs are little-endian encoded float32 arrays.
+All tables use WAL mode and foreign keys. Recursive CTEs handle path extraction (node to root) and subtree pruning (node to all descendants). Embedding BLOBs are little-endian encoded float32 arrays. Solution links have a UNIQUE constraint on (source_id, target_id, link_type) to prevent duplicates.
 
 ### Dependencies
 
@@ -487,74 +554,15 @@ Four Go dependencies. No CGO. The binary is fully static and runs anywhere.
 | Distribution | git clone + npm install + npm build | Single file, chmod +x |
 | Binary size | N/A (requires Node.js runtime) | ~15-20MB self-contained |
 
-## Examples
+## Design influences
 
-### Medical differential diagnosis (deep research)
+This project incorporates ideas from three sources:
 
-Use ToT with deep research to explore all viable diagnostic paths before concluding:
+- **[Karpathy's LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f)** — Persistent compounding knowledge artifacts. Solutions cross-reference each other, knowledge is compiled once and kept current, lint operations detect contradictions and gaps. The knowledge graph is a persistent artifact that compounds, not a flat database that merely accumulates.
 
-```
-create_tree("45yo male, B-symptoms, bilateral hilar LAD, elevated LDH", strategy="beam", bf=5)
+- **[Harness Engineering](https://martinfowler.com/articles/harness-engineering.html) ([Fowler](https://martinfowler.com/articles/harness-engineering.html), [OpenAI](https://openai.com/index/harness-engineering/))** — Feedforward guides (progressive disclosure, remediation instructions) and computational feedback sensors (CLI lint/drift/health for CI pipelines). Structural self-enforcement tests. The "map not manual" pattern for agent instructions.
 
-generate_thoughts(root, ["Lymphoma", "Sarcoidosis", "Tuberculosis", "Lung cancer", "Autoimmune"])
-evaluate_thought(lymphoma, "sure", 0.88)     # B-symptoms + LAD + LDH classic
-evaluate_thought(sarcoid, "sure", 0.82)      # bilateral hilar LAD textbook
-evaluate_thought(tb, "sure", 0.70)           # must rule out
-evaluate_thought(lung_ca, "maybe", 0.35)     # non-smoker, unlikely
-evaluate_thought(autoimmune, "maybe", 0.25)  # no joint/skin symptoms
-
-# Deep research: expand ALL top 3, not just beam-best
-get_frontier()  → see all options
-For each of [lymphoma, sarcoid, tb]:
-  generate_thoughts(branch, [variant_1, variant_2, variant_3])
-  evaluate_thought(...)
-
-# Compare all paths before concluding
-get_all_paths()
-  → #1 avg=0.68: Lymphoma → DLBCL → Diagnostic pathway
-    #2 avg=0.66: Lymphoma → Hodgkin → Treatment & prognosis
-    #3 avg=0.62: Sarcoidosis → Sarcoid-lymphoma overlap → Biopsy critical
-    #4 avg=0.56: TB → Miliary → HRCT discriminating
-    ...
-
-mark_solution(diagnostic_pathway_node)
-store_solution(tree_id, "DLBCL primary, HL secondary, rule out TB...", tags=["differential-diagnosis"])
-```
-
-### Multi-tenant caching architecture
-
-```
-create_tree("Caching strategy for multi-tenant SaaS API, 10K RPM, $500 budget", strategy="beam", bf=4)
-
-# Depth 1: Broad approaches
-generate_thoughts(root, ["Redis per-tenant", "In-process LRU", "CDN edge", "Hybrid L1+L2"])
-
-# Deep research all viable branches to depth 3
-# ... expand Redis → managed/self-hosted variants
-# ... expand Hybrid → DragonflyDB/Redis Cluster variants
-# ... each variant → risk analysis and cost breakdown
-
-get_all_paths()
-  → #1 avg=0.67: Hybrid → DragonflyDB → SPOF replication ($120/mo)
-    #2 avg=0.61: Redis → Upstash serverless ($60/mo)
-    #3 avg=0.60: Hybrid → Redis Cluster + Spot instances ($120/mo)
-
-store_solution(tree_id, "Hybrid L1+L2 with DragonflyDB...", tags=["caching", "multi-tenant"])
-```
-
-### Autonomous ML research
-
-```
-create_tree("Reduce val_bpb below 0.93", strategy="beam")
-configure_experiment(tree_id, target_file="train.py", run_command="uv run train.py", ...)
-generate_thoughts(root, ["MQA attention", "Increase depth", "Switch optimizer"])
-search_step → MQA (highest score)
-prepare_experiment(tree_id, patch_content="...", commit_message="try MQA")
-execute_experiment(tree_id, mqa_node, previous_hash)
-  → val_bpb: 0.938 (improved from 0.941, kept)
-... repeat for hours ...
-store_solution(tree_id, "MQA + depth 14 + rotary = 0.928")
-```
+- **[Graphify](https://graphify.net/)** — Graph topology analysis (god nodes, communities, bridge edges), confidence-scored relationships, token-budgeted retrieval, design rationale capture, multi-format export (Obsidian vault).
 
 ## Contributing
 
@@ -562,7 +570,7 @@ store_solution(tree_id, "MQA + depth 14 + rotary = 0.928")
 # Build
 go build -o tot-mcp .
 
-# Run tests (56 tests across 5 packages)
+# Run tests (108 tests across 7 packages)
 go test ./...
 
 # Type check
