@@ -612,6 +612,48 @@ func TestKnowledgeReport(t *testing.T) {
 	}
 }
 
+// --- Obsidian export tests ---
+
+func TestExportObsidian(t *testing.T) {
+	outDir := filepath.Join(os.TempDir(), "tot-mcp-obsidian-test")
+	os.RemoveAll(outDir)
+	defer os.RemoveAll(outDir)
+
+	err := ExportObsidian(outDir)
+	if err != nil {
+		t.Fatalf("ExportObsidian: %v", err)
+	}
+
+	// Verify Index.md was created
+	indexPath := filepath.Join(outDir, "Index.md")
+	if _, err := os.Stat(indexPath); os.IsNotExist(err) {
+		t.Fatal("Index.md was not created")
+	}
+
+	// Read Index.md content
+	content, _ := os.ReadFile(indexPath)
+	if !strings.Contains(string(content), "Knowledge Base Index") {
+		t.Fatal("Index.md missing header")
+	}
+}
+
+func TestSanitizeFilename(t *testing.T) {
+	tests := []struct {
+		input, expected string
+	}{
+		{"Hello World", "hello-world"},
+		{"optimize database query performance", "optimize-database-query-performance"},
+		{"", "untitled"},
+		{"a/b\\c:d", "a-b-c-d"},
+	}
+	for _, tt := range tests {
+		got := sanitizeFilename(tt.input)
+		if got != tt.expected {
+			t.Errorf("sanitizeFilename(%q) = %q, want %q", tt.input, got, tt.expected)
+		}
+	}
+}
+
 // --- Drift scan tests ---
 
 func TestDriftScan(t *testing.T) {

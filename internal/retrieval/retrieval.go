@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -1139,6 +1141,165 @@ func DriftScan() (*DriftReport, error) {
 		len(report.DuplicateTreePairs), len(report.AbandonedWithValue), len(report.NeverRetrieved)))
 
 	return report, nil
+}
+
+// --- Obsidian Export ---
+
+// ExportObsidian generates an Obsidian vault with interlinked markdown files.
+func ExportObsidian(outDir string) error {
+	d := db.Get()
+
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		return fmt.Errorf("create output dir: %w", err)
+	}
+
+	// Get all solutions
+	rows, err := d.Query(`SELECT id, problem, solution, thoughts, tags, score, rationale, created_at FROM solutions ORDER BY created_at DESC`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	type solData struct {
+		id, problem, solution, rationale, createdAt string
+		thoughts, tags                              []string
+		score                                       float64
+	}
+	var solutions []solData
+	for rows.Next() {
+		var s solData
+		var thoughtsStr, tagsStr string
+		rows.Scan(&s.id, &s.problem, &s.solution, &thoughtsStr, &tagsStr, &s.score, &s.rationale, &s.createdAt)
+		json.Unmarshal([]byte(thoughtsStr), &s.thoughts)
+		json.Unmarshal([]byte(tagsStr), &s.tags)
+		solutions = append(solutions, s)
+	}
+
+	// Get all links for cross-referencing
+	linkRows, err := d.Query(`SELECT source_id, target_id, link_type FROM solution_links`)
+	if err != nil {
+		return err
+	}
+	defer linkRows.Close()
+
+	links := map[string][]struct{ target, linkType string }{}
+	for linkRows.Next() {
+		var src, tgt, lt string
+		linkRows.Scan(&src, &tgt, &lt)
+		links[src] = append(links[src], struct{ target, linkType string }{tgt, lt})
+		links[tgt] = append(links[tgt], struct{ target, linkType string }{src, lt})
+	}
+
+	// Write each solution as a markdown file
+	for _, s := range solutions {
+		filename := sanitizeFilename(s.problem) + ".md"
+		var content strings.Builder
+
+		// YAML frontmatter
+		content.WriteString("---\n")
+		fmt.Fprintf(&content, "id: %s\n", s.id)
+		fmt.Fprintf(&content, "score: %.2f\n", s.score)
+		if len(s.tags) > 0 {
+			content.WriteString("tags:\n")
+			for _, t := range s.tags {
+				fmt.Fprintf(&content, "  - %s\n", t)
+			}
+		}
+		fmt.Fprintf(&content, "created: %s\n", s.createdAt)
+		content.WriteString("---\n\n")
+
+		// Content
+		fmt.Fprintf(&content, "# %s\n\n", s.problem)
+		fmt.Fprintf(&content, "## Solution\n\n%s\n\n", s.solution)
+
+		if s.rationale != "" {
+			fmt.Fprintf(&content, "## Rationale\n\n%s\n\n", s.rationale)
+		}
+
+		if len(s.thoughts) > 0 {
+			content.WriteString("## Reasoning Path\n\n")
+			for i, t := range s.thoughts {
+				fmt.Fprintf(&content, "%d. %s\n", i+1, t)
+			}
+			content.WriteString("\n")
+		}
+
+		// Wiki-links to related solutions
+		if related, ok := links[s.id]; ok && len(related) > 0 {
+			content.WriteString("## Related Solutions\n\n")
+			for _, r := range related {
+				// Find the linked solution's problem text for display
+				var linkedProblem string
+				for _, sol := range solutions {
+					if sol.id == r.target {
+						linkedProblem = sol.problem
+						break
+					}
+				}
+				if linkedProblem != "" {
+					fmt.Fprintf(&content, "- %s: [[%s]]\n", r.linkType, sanitizeFilename(linkedProblem))
+				}
+			}
+			content.WriteString("\n")
+		}
+
+		if err := os.WriteFile(filepath.Join(outDir, filename), []byte(content.String()), 0o644); err != nil {
+			return fmt.Errorf("write %s: %w", filename, err)
+		}
+	}
+
+	// Write index page
+	var index strings.Builder
+	index.WriteString("# Knowledge Base Index\n\n")
+	// Group by tags
+	tagSolutions := map[string][]string{}
+	for _, s := range solutions {
+		for _, t := range s.tags {
+			tagSolutions[t] = append(tagSolutions[t], sanitizeFilename(s.problem))
+		}
+		if len(s.tags) == 0 {
+			tagSolutions["untagged"] = append(tagSolutions["untagged"], sanitizeFilename(s.problem))
+		}
+	}
+	for tag, sols := range tagSolutions {
+		fmt.Fprintf(&index, "## %s\n\n", tag)
+		for _, sol := range sols {
+			fmt.Fprintf(&index, "- [[%s]]\n", sol)
+		}
+		index.WriteString("\n")
+	}
+
+	if err := os.WriteFile(filepath.Join(outDir, "Index.md"), []byte(index.String()), 0o644); err != nil {
+		return fmt.Errorf("write Index.md: %w", err)
+	}
+
+	LogKnowledgeEvent("export_obsidian", "", fmt.Sprintf("solutions=%d dir=%s", len(solutions), outDir))
+
+	return nil
+}
+
+// sanitizeFilename creates a safe filename from a problem statement.
+func sanitizeFilename(s string) string {
+	// Replace non-alphanumeric chars with hyphens, trim, limit length
+	var result []byte
+	for _, c := range []byte(strings.ToLower(s)) {
+		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') {
+			result = append(result, c)
+		} else if len(result) > 0 && result[len(result)-1] != '-' {
+			result = append(result, '-')
+		}
+	}
+	// Trim trailing hyphens
+	for len(result) > 0 && result[len(result)-1] == '-' {
+		result = result[:len(result)-1]
+	}
+	if len(result) > 80 {
+		result = result[:80]
+	}
+	if len(result) == 0 {
+		return "untitled"
+	}
+	return string(result)
 }
 
 // tokenizeText splits text into lowercase word tokens (>2 chars).

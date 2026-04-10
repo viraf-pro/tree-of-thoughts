@@ -81,6 +81,13 @@ func runCLI(args []string) bool {
 		cliHealth()
 	case "drift":
 		cliDrift()
+	case "export":
+		if len(args) < 4 || args[2] != "--obsidian" {
+			fatal("Usage: tot-mcp export --obsidian <output_dir>")
+		}
+		cliExportObsidian(args[3])
+	case "report":
+		cliReport()
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\nRun 'tot-mcp help' for usage.\n", cmd)
 		os.Exit(1)
@@ -108,6 +115,8 @@ COMMANDS:
   lint                       Lint the knowledge store for quality issues
   health                     Machine-readable health summary (JSON)
   drift                      Scan for knowledge entropy and drift
+  report                     Knowledge base overview (JSON)
+  export --obsidian <dir>    Export knowledge as Obsidian vault
   version                    Show version
   help                       Show this message
 
@@ -236,6 +245,21 @@ func cliCompact() {
 		fmt.Printf("  %-36s  %3d days old  %s\n", c.ID, c.AgeDays, truncate(c.Problem, 50))
 	}
 	fmt.Println("\nUse compact_apply via MCP to compress each with a summary.")
+}
+
+func cliExportObsidian(outDir string) {
+	if err := retrieval.ExportObsidian(outDir); err != nil {
+		fatal(err.Error())
+	}
+	fmt.Printf("Obsidian vault exported to %s\n", outDir)
+}
+
+func cliReport() {
+	report, err := retrieval.KnowledgeReport()
+	if err != nil {
+		fatal(err.Error())
+	}
+	printJSON(report)
 }
 
 func cliDrift() {
