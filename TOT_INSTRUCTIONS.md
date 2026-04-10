@@ -100,15 +100,17 @@ Do NOT use ToT for:
 ### Knowledge store
 | Tool | When to call |
 |---|---|
-| `retrieve_context` | Search past solutions for similar problems. |
-| `store_solution` | Save a solution for future retrieval. |
-| `link_solutions` | Cross-reference two solutions (related, supersedes, contradicts, extends). |
-| `get_solution_links` | View what a solution is connected to in the knowledge graph. |
+| `retrieve_context` | Search past solutions. Use `max_tokens` to cap response size. |
+| `store_solution` | Save a solution. Auto-generates rationale from tree exploration. |
+| `link_solutions` | Cross-reference two solutions. Confidence + source tracked. |
+| `get_solution_links` | View connections in the knowledge graph (with confidence scores). |
 | `link_trees` | Connect two trees (depends_on, informs, etc). |
 
-### Quality & maintenance
+### Graph analysis & reporting
 | Tool | When to call |
 |---|---|
+| `knowledge_report` | Read this first. Overview: top solutions, tag coverage, graph shape. |
+| `knowledge_graph` | Topology analysis: god nodes, communities, bridge edges. |
 | `lint_knowledge` | Health-check. Returns remediations with specific tool calls to fix issues. |
 | `drift_scan` | Detect entropy: duplicate trees, abandoned valuable trees, unused solutions. |
 | `knowledge_log` | View the timeline of knowledge evolution. |
@@ -122,10 +124,12 @@ Do NOT use ToT for:
 Run `tot-mcp <command>` for lightweight CLI access (no MCP overhead):
 
 ```
-tot-mcp lint      # Knowledge store health-check (JSON)
-tot-mcp drift     # Entropy/drift scan (JSON)
-tot-mcp health    # Machine-readable health summary (JSON)
-tot-mcp suggest   # What should I work on next?
-tot-mcp list      # List all trees
-tot-mcp stats     # Retrieval store statistics
+tot-mcp lint                         # Knowledge store health-check (JSON)
+tot-mcp drift                        # Entropy/drift scan (JSON)
+tot-mcp report                       # Knowledge base overview (JSON)
+tot-mcp health                       # Machine-readable health summary (JSON)
+tot-mcp export --obsidian <dir>      # Export as Obsidian vault
+tot-mcp suggest                      # What should I work on next?
+tot-mcp list                         # List all trees
+tot-mcp stats                        # Retrieval store statistics
 ```

@@ -411,19 +411,27 @@ func registerTreeTools(s *server.MCPServer) {
 func registerRetrievalTools(s *server.MCPServer) {
 	// retrieve_context
 	s.AddTool(mcp.NewTool("retrieve_context",
-		mcp.WithDescription("Hybrid search past solutions (vector + keyword)."),
+		mcp.WithDescription("Hybrid search past solutions (vector + keyword). Use max_tokens to cap response size."),
 		mcp.WithString("query", mcp.Required()),
 		mcp.WithNumber("top_k", mcp.Description("Results to return"), mcp.DefaultNumber(3)),
+		mcp.WithNumber("max_tokens", mcp.Description("Optional: cap total tokens returned (approximate). Truncates solutions to fit.")),
 		mcp.WithArray("tags", mcp.Description("Optional tag filter")),
 	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		query, _ := req.RequireString("query")
 		topK := optInt(req, "top_k", 3)
+		maxTok := optInt(req, "max_tokens", 0)
 		var tags []string
 		if raw, ok := req.GetArguments()["tags"]; ok {
 			b, _ := json.Marshal(raw)
 			json.Unmarshal(b, &tags)
 		}
-		results, err := retrieval.Retrieve(query, topK, tags)
+		var results []retrieval.Result
+		var err error
+		if maxTok > 0 {
+			results, err = retrieval.Retrieve(query, topK, tags, maxTok)
+		} else {
+			results, err = retrieval.Retrieve(query, topK, tags)
+		}
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
@@ -817,5 +825,27 @@ func registerKnowledgeTools(s *server.MCPServer) {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		return textResult(report), nil
+	})
+
+	// knowledge_report — structured overview of the knowledge base
+	s.AddTool(mcp.NewTool("knowledge_report",
+		mcp.WithDescription("Get a structured overview of the knowledge base: top solutions (god nodes), tag coverage, graph summary, recent events, and suggested queries. Read this first before querying — it's the map of what the knowledge base knows."),
+	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		report, err := retrieval.KnowledgeReport()
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return textResult(report), nil
+	})
+
+	// knowledge_graph — graph topology analysis
+	s.AddTool(mcp.NewTool("knowledge_graph",
+		mcp.WithDescription("Analyze the knowledge graph topology: god nodes (most connected solutions), communities (clusters of related solutions), and bridge edges (surprising cross-domain connections). Use for understanding the shape of accumulated knowledge."),
+	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		analysis, err := retrieval.AnalyzeKnowledgeGraph()
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return textResult(analysis), nil
 	})
 }
