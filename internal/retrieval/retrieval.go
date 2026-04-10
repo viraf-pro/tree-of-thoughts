@@ -1,6 +1,7 @@
 package retrieval
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -667,6 +668,193 @@ func findSimilarPairs() []SimilarPair {
 		}
 	}
 	return out
+}
+
+// --- Graph Topology Analysis ---
+
+// GraphAnalysis contains topology metrics for the knowledge graph.
+type GraphAnalysis struct {
+	TotalNodes  int            `json:"totalNodes"`
+	TotalEdges  int            `json:"totalEdges"`
+	GodNodes    []GodNode      `json:"godNodes"`
+	Communities []Community    `json:"communities"`
+	Bridges     []BridgeEdge   `json:"bridges"`
+}
+
+// GodNode is a solution with the highest link degree (most connected).
+type GodNode struct {
+	SolutionID string `json:"solutionId"`
+	Problem    string `json:"problem"`
+	Degree     int    `json:"degree"`
+}
+
+// Community is a cluster of connected solutions.
+type Community struct {
+	ID        int      `json:"id"`
+	Solutions []string `json:"solutions"`
+	Tags      []string `json:"tags"`
+	Size      int      `json:"size"`
+}
+
+// BridgeEdge is a link connecting solutions in different communities.
+type BridgeEdge struct {
+	SourceID    string `json:"sourceId"`
+	TargetID    string `json:"targetId"`
+	LinkType    string `json:"linkType"`
+	CommunityA  int   `json:"communityA"`
+	CommunityB  int   `json:"communityB"`
+}
+
+// AnalyzeKnowledgeGraph computes topology metrics on the solution link graph.
+func AnalyzeKnowledgeGraph() (*GraphAnalysis, error) {
+	d := db.Get()
+	analysis := &GraphAnalysis{
+		GodNodes:    make([]GodNode, 0),
+		Communities: make([]Community, 0),
+		Bridges:     make([]BridgeEdge, 0),
+	}
+
+	// Count nodes and edges
+	d.QueryRow(`SELECT COUNT(*) FROM solutions`).Scan(&analysis.TotalNodes)
+	d.QueryRow(`SELECT COUNT(*) FROM solution_links`).Scan(&analysis.TotalEdges)
+
+	if analysis.TotalNodes == 0 {
+		return analysis, nil
+	}
+
+	// God nodes: solutions with highest link degree
+	godRows, err := d.Query(`SELECT s.id, s.problem, COUNT(*) as degree
+		FROM solutions s
+		JOIN solution_links sl ON sl.source_id=s.id OR sl.target_id=s.id
+		GROUP BY s.id ORDER BY degree DESC LIMIT 10`)
+	if err == nil {
+		defer godRows.Close()
+		for godRows.Next() {
+			var g GodNode
+			if err := godRows.Scan(&g.SolutionID, &g.Problem, &g.Degree); err != nil {
+				continue
+			}
+			analysis.GodNodes = append(analysis.GodNodes, g)
+		}
+	}
+
+	// Communities via connected components (BFS on solution_links)
+	// Build adjacency list
+	adjRows, err := d.Query(`SELECT source_id, target_id FROM solution_links`)
+	if err != nil {
+		return analysis, nil
+	}
+	defer adjRows.Close()
+
+	adj := map[string][]string{}
+	allNodes := map[string]bool{}
+	for adjRows.Next() {
+		var src, tgt string
+		adjRows.Scan(&src, &tgt)
+		adj[src] = append(adj[src], tgt)
+		adj[tgt] = append(adj[tgt], src)
+		allNodes[src] = true
+		allNodes[tgt] = true
+	}
+
+	// Also include unlinked solutions as isolated nodes
+	isolatedRows, err := d.Query(`SELECT id FROM solutions WHERE id NOT IN (
+		SELECT source_id FROM solution_links UNION SELECT target_id FROM solution_links)`)
+	if err == nil {
+		defer isolatedRows.Close()
+		for isolatedRows.Next() {
+			var id string
+			isolatedRows.Scan(&id)
+			allNodes[id] = true
+		}
+	}
+
+	// BFS connected components
+	visited := map[string]bool{}
+	communityOf := map[string]int{}
+	communityID := 0
+	for node := range allNodes {
+		if visited[node] {
+			continue
+		}
+		// BFS
+		queue := []string{node}
+		var members []string
+		for len(queue) > 0 {
+			curr := queue[0]
+			queue = queue[1:]
+			if visited[curr] {
+				continue
+			}
+			visited[curr] = true
+			communityOf[curr] = communityID
+			members = append(members, curr)
+			for _, neighbor := range adj[curr] {
+				if !visited[neighbor] {
+					queue = append(queue, neighbor)
+				}
+			}
+		}
+		if len(members) > 0 {
+			// Get common tags for this community
+			tags := communityTags(d, members)
+			analysis.Communities = append(analysis.Communities, Community{
+				ID: communityID, Solutions: members, Tags: tags, Size: len(members),
+			})
+			communityID++
+		}
+	}
+
+	// Bridges: links between different communities
+	linkRows, err := d.Query(`SELECT source_id, target_id, link_type FROM solution_links`)
+	if err == nil {
+		defer linkRows.Close()
+		for linkRows.Next() {
+			var src, tgt, lt string
+			linkRows.Scan(&src, &tgt, &lt)
+			ca, cb := communityOf[src], communityOf[tgt]
+			if ca != cb {
+				analysis.Bridges = append(analysis.Bridges, BridgeEdge{
+					SourceID: src, TargetID: tgt, LinkType: lt,
+					CommunityA: ca, CommunityB: cb,
+				})
+			}
+		}
+	}
+
+	// Sort communities by size descending
+	for i := 1; i < len(analysis.Communities); i++ {
+		for j := i; j > 0 && analysis.Communities[j].Size > analysis.Communities[j-1].Size; j-- {
+			analysis.Communities[j], analysis.Communities[j-1] = analysis.Communities[j-1], analysis.Communities[j]
+		}
+	}
+
+	LogKnowledgeEvent("graph_analysis", "", fmt.Sprintf("nodes=%d edges=%d communities=%d gods=%d bridges=%d",
+		analysis.TotalNodes, analysis.TotalEdges, len(analysis.Communities), len(analysis.GodNodes), len(analysis.Bridges)))
+
+	return analysis, nil
+}
+
+// communityTags finds the most common tags among a set of solution IDs.
+func communityTags(d *sql.DB, solutionIDs []string) []string {
+	tagCount := map[string]int{}
+	for _, id := range solutionIDs {
+		var tagsStr string
+		d.QueryRow(`SELECT tags FROM solutions WHERE id=?`, id).Scan(&tagsStr)
+		var tags []string
+		json.Unmarshal([]byte(tagsStr), &tags)
+		for _, t := range tags {
+			tagCount[t]++
+		}
+	}
+	// Return tags that appear in >50% of solutions, or top 3
+	var result []string
+	for tag, count := range tagCount {
+		if count > len(solutionIDs)/2 || len(result) < 3 {
+			result = append(result, tag)
+		}
+	}
+	return result
 }
 
 // --- Drift Scan (entropy management) ---

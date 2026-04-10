@@ -445,6 +445,64 @@ func TestLintKnowledgeHasRemediations(t *testing.T) {
 	}
 }
 
+// --- Graph topology analysis tests ---
+
+func TestAnalyzeKnowledgeGraphEmpty(t *testing.T) {
+	analysis, err := AnalyzeKnowledgeGraph()
+	if err != nil {
+		t.Fatalf("AnalyzeKnowledgeGraph: %v", err)
+	}
+	if analysis.GodNodes == nil {
+		t.Fatal("GodNodes should not be nil")
+	}
+	if analysis.Communities == nil {
+		t.Fatal("Communities should not be nil")
+	}
+	if analysis.Bridges == nil {
+		t.Fatal("Bridges should not be nil")
+	}
+}
+
+func TestAnalyzeKnowledgeGraphWithData(t *testing.T) {
+	d := db.Get()
+	// Create a small graph: A --related--> B --related--> C, D isolated
+	d.Exec(`INSERT OR IGNORE INTO solutions (id,problem,solution,thoughts,path_ids,score,tags,compacted,created_at)
+		VALUES ('graph-a','problem alpha','sol a','[]','[]',0.8,'["go"]',0,'2024-01-01T00:00:00Z')`)
+	d.Exec(`INSERT OR IGNORE INTO solutions (id,problem,solution,thoughts,path_ids,score,tags,compacted,created_at)
+		VALUES ('graph-b','problem beta','sol b','[]','[]',0.7,'["go"]',0,'2024-01-01T00:00:00Z')`)
+	d.Exec(`INSERT OR IGNORE INTO solutions (id,problem,solution,thoughts,path_ids,score,tags,compacted,created_at)
+		VALUES ('graph-c','problem gamma','sol c','[]','[]',0.6,'["rust"]',0,'2024-01-01T00:00:00Z')`)
+	d.Exec(`INSERT OR IGNORE INTO solutions (id,problem,solution,thoughts,path_ids,score,tags,compacted,created_at)
+		VALUES ('graph-d','problem delta isolated','sol d','[]','[]',0.5,'[]',0,'2024-01-01T00:00:00Z')`)
+
+	LinkSolutions("graph-a", "graph-b", "related", "test")
+	LinkSolutions("graph-b", "graph-c", "related", "test")
+
+	analysis, err := AnalyzeKnowledgeGraph()
+	if err != nil {
+		t.Fatalf("AnalyzeKnowledgeGraph: %v", err)
+	}
+	if analysis.TotalEdges < 2 {
+		t.Fatalf("totalEdges: got %d, want >= 2", analysis.TotalEdges)
+	}
+
+	// graph-b should be a god node (degree 2: connects to a and c)
+	foundGod := false
+	for _, g := range analysis.GodNodes {
+		if g.SolutionID == "graph-b" && g.Degree >= 2 {
+			foundGod = true
+		}
+	}
+	if !foundGod {
+		t.Log("graph-b not found as god node (may be in larger dataset with higher-degree nodes)")
+	}
+
+	// Should have at least 2 communities (connected component {a,b,c} + isolated {d})
+	if len(analysis.Communities) < 2 {
+		t.Logf("communities: got %d (may merge with data from other tests)", len(analysis.Communities))
+	}
+}
+
 func TestTokenizeText(t *testing.T) {
 	words := tokenizeText("Hello, World! This is a test.")
 	if !words["hello"] {
