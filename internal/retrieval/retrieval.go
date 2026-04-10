@@ -75,7 +75,8 @@ func autoLinkRelated(newID, problem string) {
 }
 
 // Retrieve performs hybrid vector + keyword search.
-func Retrieve(query string, topK int, filterTags []string) ([]Result, error) {
+// maxTokens: if > 0, truncates solution text to fit within approximate token budget.
+func Retrieve(query string, topK int, filterTags []string, maxTokens ...int) ([]Result, error) {
 	results := map[string]*Result{}
 
 	// Vector search
@@ -119,10 +120,46 @@ func Retrieve(query string, topK int, filterTags []string) ([]Result, error) {
 	if len(sorted) > topK {
 		sorted = sorted[:topK]
 	}
+	// Apply token budget if specified
+	if len(maxTokens) > 0 && maxTokens[0] > 0 {
+		budget := maxTokens[0]
+		sorted = truncateResults(sorted, budget)
+	}
+
 	if len(sorted) > 0 {
 		LogKnowledgeEvent("retrieved", "", fmt.Sprintf("matched=%d", len(sorted)))
 	}
 	return sorted, nil
+}
+
+// truncateResults trims solution text to fit within an approximate token budget.
+// Tokens are estimated at ~4 chars per token.
+func truncateResults(results []Result, maxTokens int) []Result {
+	charsPerToken := 4
+	totalBudget := maxTokens * charsPerToken
+	used := 0
+
+	out := make([]Result, 0, len(results))
+	for _, r := range results {
+		size := len(r.Problem) + len(r.Solution)
+		for _, t := range r.Thoughts {
+			size += len(t)
+		}
+		if used+size > totalBudget && len(out) > 0 {
+			break
+		}
+		// If single result exceeds budget, truncate its solution
+		if size > totalBudget {
+			maxSol := totalBudget - len(r.Problem) - 100 // reserve space for problem + overhead
+			if maxSol > 0 && len(r.Solution) > maxSol {
+				r.Solution = r.Solution[:maxSol] + "... (truncated)"
+			}
+			r.Thoughts = nil // drop thoughts to save tokens
+		}
+		out = append(out, r)
+		used += size
+	}
+	return out
 }
 
 func vectorSearch(query string, limit int) ([]Result, error) {
@@ -855,6 +892,108 @@ func communityTags(d *sql.DB, solutionIDs []string) []string {
 		}
 	}
 	return result
+}
+
+// --- Knowledge Report ---
+
+// KnowledgeReportData is a structured overview of the knowledge base,
+// designed as the "map" agents read before querying.
+type KnowledgeReportData struct {
+	TopSolutions    []GodNode     `json:"topSolutions"`
+	TagCoverage     []TagCoverage `json:"tagCoverage"`
+	RecentEvents    []KnowledgeEvent `json:"recentEvents"`
+	GraphSummary    GraphSummary  `json:"graphSummary"`
+	SuggestedQueries []string     `json:"suggestedQueries"`
+}
+
+// TagCoverage shows how many solutions exist per tag.
+type TagCoverage struct {
+	Tag   string `json:"tag"`
+	Count int    `json:"count"`
+}
+
+// GraphSummary is a compact overview of graph structure.
+type GraphSummary struct {
+	TotalSolutions int `json:"totalSolutions"`
+	TotalLinks     int `json:"totalLinks"`
+	Communities    int `json:"communities"`
+	Bridges        int `json:"bridges"`
+}
+
+// KnowledgeReport generates a structured overview of the knowledge base.
+func KnowledgeReport() (*KnowledgeReportData, error) {
+	report := &KnowledgeReportData{
+		TopSolutions:     make([]GodNode, 0),
+		TagCoverage:      make([]TagCoverage, 0),
+		RecentEvents:     make([]KnowledgeEvent, 0),
+		SuggestedQueries: make([]string, 0),
+	}
+
+	// Graph analysis for god nodes and structure
+	analysis, err := AnalyzeKnowledgeGraph()
+	if err != nil {
+		return report, nil
+	}
+
+	// Top 5 god nodes
+	limit := 5
+	if len(analysis.GodNodes) < limit {
+		limit = len(analysis.GodNodes)
+	}
+	report.TopSolutions = analysis.GodNodes[:limit]
+
+	report.GraphSummary = GraphSummary{
+		TotalSolutions: analysis.TotalNodes,
+		TotalLinks:     analysis.TotalEdges,
+		Communities:    len(analysis.Communities),
+		Bridges:        len(analysis.Bridges),
+	}
+
+	// Tag coverage
+	d := db.Get()
+	tagRows, err := d.Query(`SELECT tags FROM solutions WHERE compacted=0`)
+	if err == nil {
+		defer tagRows.Close()
+		tagCount := map[string]int{}
+		for tagRows.Next() {
+			var tagsStr string
+			tagRows.Scan(&tagsStr)
+			var tags []string
+			json.Unmarshal([]byte(tagsStr), &tags)
+			for _, t := range tags {
+				tagCount[t]++
+			}
+		}
+		for tag, count := range tagCount {
+			report.TagCoverage = append(report.TagCoverage, TagCoverage{Tag: tag, Count: count})
+		}
+		// Sort by count descending
+		for i := 1; i < len(report.TagCoverage); i++ {
+			for j := i; j > 0 && report.TagCoverage[j].Count > report.TagCoverage[j-1].Count; j-- {
+				report.TagCoverage[j], report.TagCoverage[j-1] = report.TagCoverage[j-1], report.TagCoverage[j]
+			}
+		}
+	}
+
+	// Recent events
+	report.RecentEvents, _ = GetKnowledgeLog(10)
+
+	// Suggested queries based on god nodes
+	for _, g := range report.TopSolutions {
+		report.SuggestedQueries = append(report.SuggestedQueries,
+			fmt.Sprintf("How does '%s' relate to other solutions?", truncate(g.Problem, 60)))
+	}
+
+	LogKnowledgeEvent("report", "", fmt.Sprintf("solutions=%d tags=%d", report.GraphSummary.TotalSolutions, len(report.TagCoverage)))
+
+	return report, nil
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
 }
 
 // --- Drift Scan (entropy management) ---

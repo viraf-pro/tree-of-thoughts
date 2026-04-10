@@ -3,6 +3,7 @@ package retrieval
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/tot-mcp/tot-mcp-go/internal/db"
@@ -445,6 +446,59 @@ func TestLintKnowledgeHasRemediations(t *testing.T) {
 	}
 }
 
+// --- Token budget tests ---
+
+func TestRetrieveWithTokenBudget(t *testing.T) {
+	// Store a solution with a long text
+	d := db.Get()
+	d.Exec(`INSERT OR IGNORE INTO trees (id,problem,root_id,search_strategy,max_depth,branching_factor,status,created_at,updated_at)
+		VALUES ('budget-tree','budget test','budget-root','bfs',5,3,'active','2024-01-01T00:00:00Z','2024-01-01T00:00:00Z')`)
+	d.Exec(`INSERT OR IGNORE INTO nodes (id,tree_id,parent_id,thought,score,depth,is_terminal,metadata,created_at)
+		VALUES ('budget-root','budget-tree',NULL,'budget test',0,0,0,'{}','2024-01-01T00:00:00Z')`)
+
+	longSolution := strings.Repeat("This is a detailed solution step. ", 100)
+	StoreSolution("budget-tree", "token budget optimization test", longSolution,
+		[]string{"step 1", "step 2", "step 3"}, nil, 0.8, []string{"budget"})
+
+	// Without budget — should get full results
+	full, err := Retrieve("token budget optimization", 5, nil)
+	if err != nil {
+		t.Fatalf("Retrieve: %v", err)
+	}
+
+	// With small budget — should truncate
+	budgeted, err := Retrieve("token budget optimization", 5, nil, 50)
+	if err != nil {
+		t.Fatalf("Retrieve with budget: %v", err)
+	}
+
+	if len(full) > 0 && len(budgeted) > 0 {
+		// Budgeted solution should be shorter or equal
+		fullLen := len(full[0].Solution)
+		budgetLen := len(budgeted[0].Solution)
+		if budgetLen > fullLen {
+			t.Fatalf("budgeted solution (%d) should not be longer than full (%d)", budgetLen, fullLen)
+		}
+	}
+}
+
+func TestTruncateResults(t *testing.T) {
+	results := []Result{
+		{ID: "1", Problem: "short", Solution: "short sol"},
+		{ID: "2", Problem: "medium problem", Solution: strings.Repeat("x", 500)},
+	}
+
+	// Budget of 50 tokens (~200 chars) should keep first, maybe truncate second
+	truncated := truncateResults(results, 50)
+	if len(truncated) == 0 {
+		t.Fatal("should return at least 1 result")
+	}
+	// First result should be included
+	if truncated[0].ID != "1" {
+		t.Fatalf("first result should be id=1, got %s", truncated[0].ID)
+	}
+}
+
 // --- Graph topology analysis tests ---
 
 func TestAnalyzeKnowledgeGraphEmpty(t *testing.T) {
@@ -531,6 +585,30 @@ func TestJaccardSim(t *testing.T) {
 	}
 	if jaccardSim(nil, a) != 0.0 {
 		t.Fatal("nil should be 0")
+	}
+}
+
+// --- Knowledge report tests ---
+
+func TestKnowledgeReport(t *testing.T) {
+	report, err := KnowledgeReport()
+	if err != nil {
+		t.Fatalf("KnowledgeReport: %v", err)
+	}
+	if report.TopSolutions == nil {
+		t.Fatal("TopSolutions should not be nil")
+	}
+	if report.TagCoverage == nil {
+		t.Fatal("TagCoverage should not be nil")
+	}
+	if report.RecentEvents == nil {
+		t.Fatal("RecentEvents should not be nil")
+	}
+	if report.SuggestedQueries == nil {
+		t.Fatal("SuggestedQueries should not be nil")
+	}
+	if report.GraphSummary.TotalSolutions < 1 {
+		t.Fatal("expected at least 1 solution in report")
 	}
 }
 
