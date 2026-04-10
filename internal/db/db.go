@@ -73,6 +73,11 @@ func migrate(d *sql.DB) error {
 			return fmt.Errorf("migrate solution_links confidence: %w", err)
 		}
 	}
+	if _, err := d.Exec(`ALTER TABLE solutions ADD COLUMN rationale TEXT NOT NULL DEFAULT ''`); err != nil {
+		if !strings.Contains(err.Error(), "duplicate column") {
+			return fmt.Errorf("migrate solutions rationale: %w", err)
+		}
+	}
 	if _, err := d.Exec(`ALTER TABLE solution_links ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'`); err != nil {
 		if !strings.Contains(err.Error(), "duplicate column") {
 			return fmt.Errorf("migrate solution_links source: %w", err)
@@ -126,6 +131,7 @@ CREATE TABLE IF NOT EXISTS solutions (
 	path_ids   TEXT NOT NULL DEFAULT '[]',
 	score      REAL NOT NULL DEFAULT 0.0,
 	tags       TEXT NOT NULL DEFAULT '[]',
+	rationale  TEXT NOT NULL DEFAULT '',
 	embedding  BLOB,
 	compacted  INTEGER NOT NULL DEFAULT 0,
 	created_at TEXT NOT NULL

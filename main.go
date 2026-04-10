@@ -461,7 +461,25 @@ func registerRetrievalTools(s *server.MCPServer) {
 			pathIDs = best.NodeIDs
 			score = best.AverageScore
 		}
-		id, err := retrieval.StoreSolution(treeID, t.Problem, solution, thoughts, pathIDs, score, tags)
+
+		// Auto-generate rationale from tree exploration
+		rationale := ""
+		allPaths, _ := tree.GetAllPaths(treeID)
+		if len(allPaths) > 1 {
+			rationale = fmt.Sprintf("Evaluated %d branches. ", len(allPaths))
+			for i, p := range allPaths {
+				if i > 2 {
+					break
+				}
+				if best != nil && len(p.NodeIDs) > 0 && len(best.NodeIDs) > 0 && p.NodeIDs[len(p.NodeIDs)-1] == best.NodeIDs[len(best.NodeIDs)-1] {
+					rationale += fmt.Sprintf("Selected: %s (score %.2f). ", truncate(p.Thoughts[len(p.Thoughts)-1], 60), p.AverageScore)
+				} else if len(p.Thoughts) > 0 {
+					rationale += fmt.Sprintf("Considered: %s (score %.2f). ", truncate(p.Thoughts[len(p.Thoughts)-1], 60), p.AverageScore)
+				}
+			}
+		}
+
+		id, err := retrieval.StoreSolution(treeID, t.Problem, solution, thoughts, pathIDs, score, tags, rationale)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}

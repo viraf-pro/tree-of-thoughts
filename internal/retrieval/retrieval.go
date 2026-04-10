@@ -24,12 +24,14 @@ type Result struct {
 	Thoughts   []string `json:"thoughts"`
 	Score      float64  `json:"score"`
 	Tags       []string `json:"tags"`
+	Rationale  string   `json:"rationale,omitempty"`
 	Similarity float64  `json:"similarity"`
 	MatchType  string   `json:"matchType"`
 }
 
 // StoreSolution saves a solution with an optional embedding.
-func StoreSolution(treeID, problem, solution string, thoughts, pathIDs []string, score float64, tags []string) (string, error) {
+// rationale is optional — pass "" to skip.
+func StoreSolution(treeID, problem, solution string, thoughts, pathIDs []string, score float64, tags []string, rationale ...string) (string, error) {
 	d := db.Get()
 	id := uuid.NewString()
 	ts := time.Now().UTC().Format(time.RFC3339)
@@ -47,9 +49,14 @@ func StoreSolution(treeID, problem, solution string, thoughts, pathIDs []string,
 		}
 	}
 
-	_, err := d.Exec(`INSERT INTO solutions (id,tree_id,problem,solution,thoughts,path_ids,score,tags,embedding,created_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?)`,
-		id, treeID, problem, solution, string(thoughtsJSON), string(pathJSON), score, string(tagsJSON), embBlob, ts)
+	rat := ""
+	if len(rationale) > 0 {
+		rat = rationale[0]
+	}
+
+	_, err := d.Exec(`INSERT INTO solutions (id,tree_id,problem,solution,thoughts,path_ids,score,tags,rationale,embedding,created_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+		id, treeID, problem, solution, string(thoughtsJSON), string(pathJSON), score, string(tagsJSON), rat, embBlob, ts)
 	if err == nil {
 		autoLinkRelated(id, problem)
 		LogKnowledgeEvent("stored", id, fmt.Sprintf("tree=%s tags=%v", treeID, tags))
