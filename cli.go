@@ -9,6 +9,7 @@ import (
 	"github.com/tot-mcp/tot-mcp-go/internal/db"
 	"github.com/tot-mcp/tot-mcp-go/internal/retrieval"
 	"github.com/tot-mcp/tot-mcp-go/internal/tree"
+	"github.com/tot-mcp/tot-mcp-go/internal/web"
 )
 
 // runCLI handles command-line invocations. Returns true if it handled the args.
@@ -88,6 +89,17 @@ func runCLI(args []string) bool {
 		cliExportObsidian(args[3])
 	case "report":
 		cliReport()
+	case "ingest":
+		if len(args) < 3 {
+			fatal("Usage: tot-mcp ingest <url> [--tags tag1,tag2]")
+		}
+		ingestTags := ""
+		for i := 3; i < len(args); i++ {
+			if args[i] == "--tags" && i+1 < len(args) {
+				ingestTags = args[i+1]
+			}
+		}
+		cliIngest(args[2], ingestTags)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\nRun 'tot-mcp help' for usage.\n", cmd)
 		os.Exit(1)
@@ -117,6 +129,7 @@ COMMANDS:
   drift                      Scan for knowledge entropy and drift
   report                     Knowledge base overview (JSON)
   export --obsidian <dir>    Export knowledge as Obsidian vault
+  ingest <url>               Fetch URL and store as a solution
   version                    Show version
   help                       Show this message
 
@@ -245,6 +258,44 @@ func cliCompact() {
 		fmt.Printf("  %-36s  %3d days old  %s\n", c.ID, c.AgeDays, truncate(c.Problem, 50))
 	}
 	fmt.Println("\nUse compact_apply via MCP to compress each with a summary.")
+}
+
+func cliIngest(rawURL, tagsCSV string) {
+	result, err := web.Fetch(rawURL)
+	if err != nil {
+		fatal(fmt.Sprintf("Fetch failed: %v", err))
+	}
+
+	problem := result.Title
+	if problem == "" {
+		problem = "Ingested from " + rawURL
+	}
+
+	content := result.Content
+	if len(content) > 4000 {
+		content = content[:4000] + "\n\n[... truncated]"
+	}
+
+	tags := []string{"ingested"}
+	if tagsCSV != "" {
+		for _, t := range strings.Split(tagsCSV, ",") {
+			t = strings.TrimSpace(t)
+			if t != "" {
+				tags = append(tags, t)
+			}
+		}
+	}
+
+	rationale := fmt.Sprintf("Ingested from %s (%d bytes)", rawURL, result.BytesFetched)
+	id, err := retrieval.StoreSolution("", problem, content, nil, nil, 0.5, tags, rationale)
+	if err != nil {
+		fatal(err.Error())
+	}
+
+	fmt.Printf("Ingested: %s\n", problem)
+	fmt.Printf("  ID:    %s\n", id)
+	fmt.Printf("  Size:  %d bytes\n", result.BytesFetched)
+	fmt.Printf("  Tags:  %v\n", tags)
 }
 
 func cliExportObsidian(outDir string) {

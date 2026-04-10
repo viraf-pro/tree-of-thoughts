@@ -162,7 +162,7 @@ func TestStructuralCLIHelpCoversAllCommands(t *testing.T) {
 	}
 	content := string(mainFile)
 
-	commands := []string{"suggest", "list", "show", "route", "create", "ready", "audit", "stats", "compact", "lint", "health", "drift", "export", "report"}
+	commands := []string{"suggest", "list", "show", "route", "create", "ready", "audit", "stats", "compact", "lint", "health", "drift", "export", "report", "ingest"}
 	for _, cmd := range commands {
 		if !strings.Contains(content, fmt.Sprintf("case %q:", cmd)) {
 			t.Fatalf("CLI switch missing case for %q", cmd)

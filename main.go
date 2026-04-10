@@ -16,6 +16,7 @@ import (
 	"github.com/tot-mcp/tot-mcp-go/internal/experiment"
 	"github.com/tot-mcp/tot-mcp-go/internal/retrieval"
 	"github.com/tot-mcp/tot-mcp-go/internal/tree"
+	"github.com/tot-mcp/tot-mcp-go/internal/web"
 )
 
 var version = "dev"
@@ -847,5 +848,60 @@ func registerKnowledgeTools(s *server.MCPServer) {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
 		return textResult(analysis), nil
+	})
+
+	// ingest_url — fetch a web page and store its content as a solution
+	s.AddTool(mcp.NewTool("ingest_url",
+		mcp.WithDescription("Fetch a web page and store its content as a solution for future retrieval. Use for ingesting articles, documentation, or research into the knowledge base. Only http/https URLs allowed. Content capped at 1MB."),
+		mcp.WithString("url", mcp.Required(), mcp.Description("URL to fetch (http/https only)")),
+		mcp.WithString("problem", mcp.Description("Problem statement to file this under. Defaults to the page title.")),
+		mcp.WithArray("tags", mcp.Description("Tags for categorization")),
+	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		rawURL, _ := req.RequireString("url")
+		problem := optString(req, "problem", "")
+		var tags []string
+		if raw, ok := req.GetArguments()["tags"]; ok {
+			b, _ := json.Marshal(raw)
+			json.Unmarshal(b, &tags)
+		}
+
+		result, err := web.Fetch(rawURL)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Fetch failed: %v", err)), nil
+		}
+
+		// Use page title as problem if not specified
+		if problem == "" {
+			problem = result.Title
+		}
+		if problem == "" {
+			problem = "Ingested from " + rawURL
+		}
+
+		// Truncate content for solution storage (keep first ~4000 chars)
+		content := result.Content
+		if len(content) > 4000 {
+			content = content[:4000] + "\n\n[... truncated, full content was " + fmt.Sprintf("%d", result.BytesFetched) + " bytes]"
+		}
+
+		tags = append(tags, "ingested")
+		rationale := fmt.Sprintf("Ingested from %s (%d bytes fetched)", rawURL, result.BytesFetched)
+
+		id, err := retrieval.StoreSolution("", problem, content, nil, nil, 0.5, tags, rationale)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+
+		db.LogAudit("", "", "ingest_url", map[string]any{"url": rawURL}, fmt.Sprintf("stored as %s", id))
+
+		return textResult(map[string]any{
+			"message":      "URL ingested and stored as solution.",
+			"entryId":      id,
+			"title":        result.Title,
+			"problem":      problem,
+			"contentType":  result.ContentType,
+			"bytesFetched": result.BytesFetched,
+			"tags":         tags,
+		}), nil
 	})
 }

@@ -105,6 +105,7 @@ Do NOT use ToT for:
 | `link_solutions` | Cross-reference two solutions. Confidence + source tracked. |
 | `get_solution_links` | View connections in the knowledge graph (with confidence scores). |
 | `link_trees` | Connect two trees (depends_on, informs, etc). |
+| `ingest_url` | Fetch a web page and store as a solution (articles, docs, research). |
 
 ### Graph analysis & reporting
 | Tool | When to call |
@@ -129,6 +130,7 @@ tot-mcp drift                        # Entropy/drift scan (JSON)
 tot-mcp report                       # Knowledge base overview (JSON)
 tot-mcp health                       # Machine-readable health summary (JSON)
 tot-mcp export --obsidian <dir>      # Export as Obsidian vault
+tot-mcp ingest <url>                 # Fetch URL and store as solution
 tot-mcp suggest                      # What should I work on next?
 tot-mcp list                         # List all trees
 tot-mcp stats                        # Retrieval store statistics
