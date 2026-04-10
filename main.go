@@ -773,4 +773,31 @@ func registerKnowledgeTools(s *server.MCPServer) {
 		}
 		return textResult(map[string]any{"events": events, "count": len(events)}), nil
 	})
+
+	// get_tree_context — progressive-disclosure context for resuming a tree
+	s.AddTool(mcp.NewTool("get_tree_context",
+		mcp.WithDescription("Get progressive-disclosure context for resuming a tree. Returns problem, status, best path, frontier nodes, and optionally pruned branches and all paths. Use when picking up a tree from a previous session."),
+		mcp.WithString("tree_id", mcp.Required()),
+		mcp.WithString("detail", mcp.Description("'summary' (default) or 'full' for complete decision history"), mcp.DefaultString("summary")),
+	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		treeID, _ := req.RequireString("tree_id")
+		detail := optString(req, "detail", "summary")
+
+		tctx, err := tree.GetTreeContext(treeID, detail)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return textResult(tctx), nil
+	})
+
+	// drift_scan — detect knowledge entropy and drift
+	s.AddTool(mcp.NewTool("drift_scan",
+		mcp.WithDescription("Scan for knowledge entropy: duplicate trees, abandoned trees with valuable content, and never-retrieved solutions. Returns remediations with specific tool calls to fix issues. Run periodically or in CI."),
+	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		report, err := retrieval.DriftScan()
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return textResult(report), nil
+	})
 }
