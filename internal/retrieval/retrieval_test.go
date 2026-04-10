@@ -429,6 +429,83 @@ func TestJaccardSim(t *testing.T) {
 	}
 }
 
+// --- Drift scan tests ---
+
+func TestDriftScan(t *testing.T) {
+	report, err := DriftScan()
+	if err != nil {
+		t.Fatalf("DriftScan: %v", err)
+	}
+	if report.DuplicateTreePairs == nil {
+		t.Fatal("DuplicateTreePairs should not be nil")
+	}
+	if report.AbandonedWithValue == nil {
+		t.Fatal("AbandonedWithValue should not be nil")
+	}
+	if report.NeverRetrieved == nil {
+		t.Fatal("NeverRetrieved should not be nil")
+	}
+	if report.Remediations == nil {
+		t.Fatal("Remediations should not be nil")
+	}
+}
+
+func TestDriftScanDetectsDuplicateTrees(t *testing.T) {
+	d := db.Get()
+	d.Exec(`INSERT OR IGNORE INTO trees (id,problem,root_id,search_strategy,max_depth,branching_factor,status,created_at,updated_at)
+		VALUES ('drift-tree-1','optimize database query performance indexes','drift-root-1','bfs',5,3,'active','2024-01-01T00:00:00Z','2024-01-01T00:00:00Z')`)
+	d.Exec(`INSERT OR IGNORE INTO nodes (id,tree_id,parent_id,thought,score,depth,is_terminal,metadata,created_at)
+		VALUES ('drift-root-1','drift-tree-1',NULL,'root',0,0,0,'{}','2024-01-01T00:00:00Z')`)
+	d.Exec(`INSERT OR IGNORE INTO trees (id,problem,root_id,search_strategy,max_depth,branching_factor,status,created_at,updated_at)
+		VALUES ('drift-tree-2','optimize database query performance tuning','drift-root-2','bfs',5,3,'active','2024-01-02T00:00:00Z','2024-01-02T00:00:00Z')`)
+	d.Exec(`INSERT OR IGNORE INTO nodes (id,tree_id,parent_id,thought,score,depth,is_terminal,metadata,created_at)
+		VALUES ('drift-root-2','drift-tree-2',NULL,'root',0,0,0,'{}','2024-01-02T00:00:00Z')`)
+
+	report, err := DriftScan()
+	if err != nil {
+		t.Fatalf("DriftScan: %v", err)
+	}
+	found := false
+	for _, dup := range report.DuplicateTreePairs {
+		if (dup.TreeA == "drift-tree-1" && dup.TreeB == "drift-tree-2") ||
+			(dup.TreeA == "drift-tree-2" && dup.TreeB == "drift-tree-1") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expected duplicate tree pair for drift-tree-1 and drift-tree-2")
+	}
+}
+
+func TestDriftScanDetectsAbandonedWithValue(t *testing.T) {
+	d := db.Get()
+	d.Exec(`INSERT OR IGNORE INTO trees (id,problem,root_id,search_strategy,max_depth,branching_factor,status,created_at,updated_at)
+		VALUES ('abandoned-val','valuable abandoned tree','aval-root','bfs',5,3,'abandoned','2024-01-01T00:00:00Z','2024-01-01T00:00:00Z')`)
+	d.Exec(`INSERT OR IGNORE INTO nodes (id,tree_id,parent_id,thought,score,depth,is_terminal,metadata,created_at)
+		VALUES ('aval-root','abandoned-val',NULL,'root',0,0,0,'{}','2024-01-01T00:00:00Z')`)
+	d.Exec(`INSERT OR IGNORE INTO nodes (id,tree_id,parent_id,thought,score,depth,is_terminal,metadata,created_at)
+		VALUES ('aval-1','abandoned-val','aval-root','good idea',0.8,1,0,'{}','2024-01-01T00:00:00Z')`)
+	d.Exec(`INSERT OR IGNORE INTO nodes (id,tree_id,parent_id,thought,score,depth,is_terminal,metadata,created_at)
+		VALUES ('aval-2','abandoned-val','aval-root','another idea',0.7,1,0,'{}','2024-01-01T00:00:00Z')`)
+
+	report, err := DriftScan()
+	if err != nil {
+		t.Fatalf("DriftScan: %v", err)
+	}
+	found := false
+	for _, a := range report.AbandonedWithValue {
+		if a.TreeID == "abandoned-val" {
+			found = true
+			if a.NodeCount < 3 {
+				t.Fatalf("nodeCount: got %d, want >= 3", a.NodeCount)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected abandoned-val in AbandonedWithValue")
+	}
+}
+
 // --- Knowledge log tests ---
 
 func TestGetKnowledgeLog(t *testing.T) {

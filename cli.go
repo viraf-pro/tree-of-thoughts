@@ -79,6 +79,8 @@ func runCLI(args []string) bool {
 		cliLint()
 	case "health":
 		cliHealth()
+	case "drift":
+		cliDrift()
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\nRun 'tot-mcp help' for usage.\n", cmd)
 		os.Exit(1)
@@ -105,6 +107,7 @@ COMMANDS:
   compact                    Find solutions eligible for compaction
   lint                       Lint the knowledge store for quality issues
   health                     Machine-readable health summary (JSON)
+  drift                      Scan for knowledge entropy and drift
   version                    Show version
   help                       Show this message
 
@@ -233,6 +236,14 @@ func cliCompact() {
 		fmt.Printf("  %-36s  %3d days old  %s\n", c.ID, c.AgeDays, truncate(c.Problem, 50))
 	}
 	fmt.Println("\nUse compact_apply via MCP to compress each with a summary.")
+}
+
+func cliDrift() {
+	report, err := retrieval.DriftScan()
+	if err != nil {
+		fatal(err.Error())
+	}
+	printJSON(report)
 }
 
 func cliLint() {

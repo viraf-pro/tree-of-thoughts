@@ -659,6 +659,144 @@ func findSimilarPairs() []SimilarPair {
 	return out
 }
 
+// --- Drift Scan (entropy management) ---
+
+// DriftReport summarizes entropy and drift in the knowledge base.
+type DriftReport struct {
+	DuplicateTreePairs []DuplicateTreePair `json:"duplicateTreePairs"`
+	AbandonedWithValue []AbandonedTree     `json:"abandonedWithValue"`
+	NeverRetrieved     []UnusedSolution    `json:"neverRetrieved"`
+	Remediations       []Remediation       `json:"remediations"`
+}
+
+// DuplicateTreePair represents two trees with very similar problems.
+type DuplicateTreePair struct {
+	TreeA      string  `json:"treeA"`
+	TreeB      string  `json:"treeB"`
+	ProblemA   string  `json:"problemA"`
+	ProblemB   string  `json:"problemB"`
+	Similarity float64 `json:"similarity"`
+}
+
+// AbandonedTree represents an abandoned tree that has useful explored content.
+type AbandonedTree struct {
+	TreeID    string  `json:"treeId"`
+	Problem   string  `json:"problem"`
+	NodeCount int     `json:"nodeCount"`
+	MaxScore  float64 `json:"maxScore"`
+}
+
+// UnusedSolution is a solution that has never been retrieved.
+type UnusedSolution struct {
+	ID        string `json:"id"`
+	Problem   string `json:"problem"`
+	CreatedAt string `json:"createdAt"`
+	AgeDays   int    `json:"ageDays"`
+}
+
+// DriftScan detects knowledge entropy that accumulates over time.
+func DriftScan() (*DriftReport, error) {
+	report := &DriftReport{
+		DuplicateTreePairs: make([]DuplicateTreePair, 0),
+		AbandonedWithValue: make([]AbandonedTree, 0),
+		NeverRetrieved:     make([]UnusedSolution, 0),
+		Remediations:       make([]Remediation, 0),
+	}
+
+	d := db.Get()
+
+	// 1. Duplicate trees: active/paused trees with very similar problems
+	treeRows, err := d.Query(`SELECT id, problem FROM trees WHERE status IN ('active', 'paused') ORDER BY created_at DESC LIMIT 50`)
+	if err == nil {
+		defer treeRows.Close()
+		type treeSol struct {
+			id, problem string
+			tokens      map[string]bool
+		}
+		var trees []treeSol
+		for treeRows.Next() {
+			var t treeSol
+			if err := treeRows.Scan(&t.id, &t.problem); err != nil {
+				continue
+			}
+			t.tokens = tokenizeText(t.problem)
+			trees = append(trees, t)
+		}
+		for i := 0; i < len(trees); i++ {
+			for j := i + 1; j < len(trees); j++ {
+				sim := jaccardSim(trees[i].tokens, trees[j].tokens)
+				if sim >= 0.4 {
+					report.DuplicateTreePairs = append(report.DuplicateTreePairs, DuplicateTreePair{
+						TreeA: trees[i].id, TreeB: trees[j].id,
+						ProblemA: trees[i].problem, ProblemB: trees[j].problem,
+						Similarity: sim,
+					})
+				}
+			}
+		}
+	}
+
+	// 2. Abandoned trees with useful content (high scores, many nodes)
+	abandonedRows, err := d.Query(`SELECT t.id, t.problem, COUNT(n.id), COALESCE(MAX(n.score), 0)
+		FROM trees t JOIN nodes n ON n.tree_id=t.id
+		WHERE t.status='abandoned'
+		GROUP BY t.id HAVING COUNT(n.id) >= 3 AND MAX(n.score) >= 0.5
+		ORDER BY MAX(n.score) DESC LIMIT 10`)
+	if err == nil {
+		defer abandonedRows.Close()
+		for abandonedRows.Next() {
+			var a AbandonedTree
+			if err := abandonedRows.Scan(&a.TreeID, &a.Problem, &a.NodeCount, &a.MaxScore); err != nil {
+				continue
+			}
+			report.AbandonedWithValue = append(report.AbandonedWithValue, a)
+		}
+	}
+
+	// 3. Never-retrieved solutions
+	unusedRows, err := d.Query(`SELECT s.id, s.problem, s.created_at FROM solutions s
+		WHERE NOT EXISTS (
+			SELECT 1 FROM knowledge_log kl
+			WHERE kl.event_type='retrieved' AND kl.detail LIKE '%%' || s.id || '%%'
+		)
+		ORDER BY s.created_at ASC LIMIT 10`)
+	if err == nil {
+		defer unusedRows.Close()
+		for unusedRows.Next() {
+			var u UnusedSolution
+			if err := unusedRows.Scan(&u.ID, &u.Problem, &u.CreatedAt); err != nil {
+				continue
+			}
+			created, _ := time.Parse(time.RFC3339, u.CreatedAt)
+			u.AgeDays = int(time.Since(created).Hours() / 24)
+			report.NeverRetrieved = append(report.NeverRetrieved, u)
+		}
+	}
+
+	// Build remediations
+	for _, dup := range report.DuplicateTreePairs {
+		report.Remediations = append(report.Remediations, Remediation{
+			Issue:  fmt.Sprintf("Trees %s and %s have %.0f%% similar problems", truncID(dup.TreeA), truncID(dup.TreeB), dup.Similarity*100),
+			Action: "Consider linking these trees or abandoning the duplicate",
+			Tool:   "link_trees",
+			Args:   map[string]any{"source_tree": dup.TreeA, "target_tree": dup.TreeB, "link_type": "related"},
+		})
+	}
+	for _, a := range report.AbandonedWithValue {
+		report.Remediations = append(report.Remediations, Remediation{
+			Issue:  fmt.Sprintf("Abandoned tree %s has %d nodes with max score %.2f", truncID(a.TreeID), a.NodeCount, a.MaxScore),
+			Action: "Extract valuable insights. Resume or store the best path as a solution.",
+			Tool:   "resume_tree",
+			Args:   map[string]any{"tree_id": a.TreeID},
+		})
+	}
+
+	LogKnowledgeEvent("drift_scan", "", fmt.Sprintf("dup_trees=%d abandoned_valuable=%d never_retrieved=%d",
+		len(report.DuplicateTreePairs), len(report.AbandonedWithValue), len(report.NeverRetrieved)))
+
+	return report, nil
+}
+
 // tokenizeText splits text into lowercase word tokens (>2 chars).
 func tokenizeText(text string) map[string]bool {
 	words := map[string]bool{}
