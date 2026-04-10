@@ -496,6 +496,14 @@ func GetKnowledgeLog(limit int) ([]KnowledgeEvent, error) {
 
 // --- Knowledge Lint ---
 
+// Remediation is an actionable fix suggestion with the exact tool call to make.
+type Remediation struct {
+	Issue  string         `json:"issue"`
+	Action string         `json:"action"`
+	Tool   string         `json:"tool"`
+	Args   map[string]any `json:"args,omitempty"`
+}
+
 // LintReport summarizes the health of the knowledge store.
 type LintReport struct {
 	TotalSolutions    int            `json:"totalSolutions"`
@@ -504,6 +512,7 @@ type LintReport struct {
 	StaleSolutions    int            `json:"staleSolutions"`
 	SimilarPairs      []SimilarPair  `json:"similarPairs"`
 	Suggestions       []string       `json:"suggestions"`
+	Remediations      []Remediation  `json:"remediations"`
 }
 
 // SimilarPair represents two solutions with highly similar problem statements.
@@ -522,6 +531,7 @@ func LintKnowledge() (*LintReport, error) {
 	report := &LintReport{
 		SimilarPairs: make([]SimilarPair, 0),
 		Suggestions:  make([]string, 0),
+		Remediations: make([]Remediation, 0),
 	}
 
 	d.QueryRow(`SELECT COUNT(*) FROM solutions`).Scan(&report.TotalSolutions)
@@ -545,6 +555,25 @@ func LintKnowledge() (*LintReport, error) {
 	if report.UnlinkedSolutions > 0 {
 		report.Suggestions = append(report.Suggestions,
 			fmt.Sprintf("%d solutions have no cross-references. Run retrieve_context on their problems to find connections.", report.UnlinkedSolutions))
+		// Generate specific remediations for up to 5 unlinked solutions
+		unlinkedRows, err := d.Query(`SELECT id, problem FROM solutions s
+			WHERE NOT EXISTS (SELECT 1 FROM solution_links sl WHERE sl.source_id=s.id OR sl.target_id=s.id)
+			LIMIT 5`)
+		if err == nil {
+			defer unlinkedRows.Close()
+			for unlinkedRows.Next() {
+				var solID, problem string
+				if err := unlinkedRows.Scan(&solID, &problem); err != nil {
+					continue
+				}
+				report.Remediations = append(report.Remediations, Remediation{
+					Issue:  fmt.Sprintf("Solution %s has no cross-references", truncID(solID)),
+					Action: "Search for related solutions and create links",
+					Tool:   "retrieve_context",
+					Args:   map[string]any{"query": problem, "top_k": 3},
+				})
+			}
+		}
 	}
 	if report.StaleSolutions > 0 {
 		report.Suggestions = append(report.Suggestions,
@@ -553,9 +582,24 @@ func LintKnowledge() (*LintReport, error) {
 	if report.OrphanSolutions > 0 {
 		report.Suggestions = append(report.Suggestions,
 			fmt.Sprintf("%d solutions are from abandoned trees. Review whether they're still relevant.", report.OrphanSolutions))
+		report.Remediations = append(report.Remediations, Remediation{
+			Issue:  fmt.Sprintf("%d solutions from abandoned trees", report.OrphanSolutions),
+			Action: "Review orphan solutions and decide if they should be kept or compacted",
+			Tool:   "compact_analyze",
+			Args:   map[string]any{"min_age_days": 30},
+		})
 	}
 
 	report.SimilarPairs = findSimilarPairs()
+
+	for _, pair := range report.SimilarPairs {
+		report.Remediations = append(report.Remediations, Remediation{
+			Issue:  fmt.Sprintf("Solutions %s and %s have %.0f%% similar problems", truncID(pair.SolutionA), truncID(pair.SolutionB), pair.Similarity*100),
+			Action: "Review and link these solutions with the appropriate relationship type",
+			Tool:   "link_solutions",
+			Args:   map[string]any{"source_id": pair.SolutionA, "target_id": pair.SolutionB, "link_type": "related"},
+		})
+	}
 
 	if len(report.SimilarPairs) > 0 {
 		report.Suggestions = append(report.Suggestions,

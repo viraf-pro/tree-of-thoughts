@@ -376,6 +376,28 @@ func TestLintKnowledgeDetectsSimilarPairs(t *testing.T) {
 	}
 }
 
+func TestLintKnowledgeHasRemediations(t *testing.T) {
+	report, err := LintKnowledge()
+	if err != nil {
+		t.Fatalf("LintKnowledge: %v", err)
+	}
+	if report.Remediations == nil {
+		t.Fatal("Remediations should not be nil")
+	}
+	// With data from prior tests, we should have unlinked solutions generating remediations
+	if report.UnlinkedSolutions > 0 && len(report.Remediations) == 0 {
+		t.Fatal("expected remediations for unlinked solutions")
+	}
+	for _, r := range report.Remediations {
+		if r.Tool == "" {
+			t.Fatal("remediation must have a tool")
+		}
+		if r.Action == "" {
+			t.Fatal("remediation must have an action")
+		}
+	}
+}
+
 func TestTokenizeText(t *testing.T) {
 	words := tokenizeText("Hello, World! This is a test.")
 	if !words["hello"] {
