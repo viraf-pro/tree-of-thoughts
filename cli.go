@@ -75,6 +75,10 @@ func runCLI(args []string) bool {
 		cliStats()
 	case "compact":
 		cliCompact()
+	case "lint":
+		cliLint()
+	case "health":
+		cliHealth()
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\nRun 'tot-mcp help' for usage.\n", cmd)
 		os.Exit(1)
@@ -99,6 +103,8 @@ COMMANDS:
   audit [tree_id]            View audit trail (last 20 entries)
   stats                      Retrieval store statistics
   compact                    Find solutions eligible for compaction
+  lint                       Lint the knowledge store for quality issues
+  health                     Machine-readable health summary (JSON)
   version                    Show version
   help                       Show this message
 
@@ -227,6 +233,49 @@ func cliCompact() {
 		fmt.Printf("  %-36s  %3d days old  %s\n", c.ID, c.AgeDays, truncate(c.Problem, 50))
 	}
 	fmt.Println("\nUse compact_apply via MCP to compress each with a summary.")
+}
+
+func cliLint() {
+	report, err := retrieval.LintKnowledge()
+	if err != nil {
+		fatal(err.Error())
+	}
+	printJSON(report)
+}
+
+func cliHealth() {
+	stats := retrieval.Stats()
+	trees, _ := tree.ListTrees()
+
+	active, paused, solved, abandoned := 0, 0, 0, 0
+	var lastActivity string
+	for _, t := range trees {
+		switch t.Status {
+		case "active":
+			active++
+		case "paused":
+			paused++
+		case "solved":
+			solved++
+		case "abandoned":
+			abandoned++
+		}
+		if t.UpdatedAt > lastActivity {
+			lastActivity = t.UpdatedAt
+		}
+	}
+
+	printJSON(map[string]any{
+		"solutions": stats,
+		"trees": map[string]any{
+			"total":     len(trees),
+			"active":    active,
+			"paused":    paused,
+			"solved":    solved,
+			"abandoned": abandoned,
+		},
+		"lastActivity": lastActivity,
+	})
 }
 
 func printJSON(v any) {
