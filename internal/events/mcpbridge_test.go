@@ -3,6 +3,8 @@ package events
 import (
 	"testing"
 	"time"
+
+	"github.com/mark3labs/mcp-go/server"
 )
 
 func TestAffectedURIs_TreeCreated(t *testing.T) {
@@ -147,4 +149,145 @@ func TestAffectedURIs_AllEventTypes(t *testing.T) {
 			t.Errorf("%s: produced no URIs", tt.name)
 		}
 	}
+}
+
+func TestAffectedURIs_SubtreePruned(t *testing.T) {
+	e := Event{Type: SubtreePruned, TreeID: "t1", NodeID: "n1"}
+	has := uriSet(affectedURIs(e))
+	if !has["tot://tree/t1/frontier"] {
+		t.Error("SubtreePruned should notify frontier")
+	}
+	if !has["tot://tree/t1"] {
+		t.Error("SubtreePruned should notify tree")
+	}
+}
+
+func TestAffectedURIs_ExperimentPrepared(t *testing.T) {
+	e := Event{Type: ExperimentPrepared, TreeID: "t1"}
+	has := uriSet(affectedURIs(e))
+	if !has["tot://tree/t1/experiments"] {
+		t.Error("ExperimentPrepared should notify experiments")
+	}
+}
+
+func TestAffectedURIs_ExperimentFailed(t *testing.T) {
+	e := Event{Type: ExperimentFailed, TreeID: "t1"}
+	has := uriSet(affectedURIs(e))
+	if !has["tot://tree/t1/experiments"] {
+		t.Error("ExperimentFailed should notify experiments")
+	}
+}
+
+func TestAffectedURIs_SolutionCompacted(t *testing.T) {
+	e := Event{Type: SolutionCompacted, Payload: map[string]any{"solutionId": "sol-1"}}
+	has := uriSet(affectedURIs(e))
+	if !has["tot://solutions"] {
+		t.Error("SolutionCompacted should notify solutions list")
+	}
+	if !has["tot://solution/sol-1"] {
+		t.Error("SolutionCompacted should notify specific solution")
+	}
+}
+
+func TestAffectedURIs_URLIngested(t *testing.T) {
+	e := Event{Type: URLIngested, Payload: map[string]any{"solutionId": "ing-1"}}
+	has := uriSet(affectedURIs(e))
+	if !has["tot://solutions"] {
+		t.Error("URLIngested should notify solutions list")
+	}
+	if !has["tot://solution/ing-1"] {
+		t.Error("URLIngested should notify specific solution")
+	}
+}
+
+func TestAffectedURIs_SolutionLinkedNoSolutionId(t *testing.T) {
+	e := Event{Type: SolutionLinked, Payload: map[string]any{}}
+	uris := affectedURIs(e)
+	has := uriSet(uris)
+	if !has["tot://solutions"] {
+		t.Error("SolutionLinked should always notify solutions list")
+	}
+	// Should NOT have a specific solution URI since no solutionId in payload
+	for _, u := range uris {
+		if len(u) > len("tot://solution/") && u[:len("tot://solution/")] == "tot://solution/" {
+			t.Errorf("unexpected specific solution URI: %s", u)
+		}
+	}
+}
+
+func TestAffectedURIs_AutoPausedNoTreeID(t *testing.T) {
+	// AutoPaused events don't have a specific TreeID (they affect multiple trees)
+	e := Event{Type: TreeAutoPaused, Timestamp: time.Now(), Payload: map[string]any{"count": 3}}
+	has := uriSet(affectedURIs(e))
+	if !has["tot://trees"] {
+		t.Error("TreeAutoPaused should notify trees list")
+	}
+}
+
+func TestAffectedURIs_SolutionMarkedNoTreeList(t *testing.T) {
+	// SolutionMarked should NOT notify the tree list (it's not a lifecycle change)
+	e := Event{Type: SolutionMarked, TreeID: "t1", NodeID: "n1"}
+	has := uriSet(affectedURIs(e))
+	if has["tot://trees"] {
+		t.Error("SolutionMarked should NOT notify tree list")
+	}
+	if !has["tot://tree/t1"] {
+		t.Error("SolutionMarked should notify specific tree")
+	}
+}
+
+func TestStartMCPBridgeIntegration(t *testing.T) {
+	s := server.NewMCPServer("bridge-test", "0.0.0",
+		server.WithResourceCapabilities(true, true),
+	)
+
+	// Create a local bus to avoid interference with global
+	b := &Bus{subs: make(map[int]chan Event)}
+
+	// Subscribe a monitor to verify events flow through
+	monID, monCh := b.Subscribe()
+	defer b.Unsubscribe(monID)
+
+	// Start bridge manually (can't use StartMCPBridge since it uses global Get())
+	bridgeID, bridgeCh := b.Subscribe()
+	go func() {
+		defer b.Unsubscribe(bridgeID)
+		for evt := range bridgeCh {
+			for _, uri := range affectedURIs(evt) {
+				s.SendNotificationToAllClients(
+					"notifications/resources/updated",
+					map[string]any{"uri": uri},
+				)
+			}
+		}
+	}()
+
+	// Publish an event
+	b.Publish(Event{
+		Type:      TreeCreated,
+		TreeID:    "bridge-test-tree",
+		Timestamp: time.Now(),
+		Payload:   map[string]any{"problem": "bridge test"},
+	})
+
+	// Verify the monitor received it (proves event was published and consumed)
+	select {
+	case got := <-monCh:
+		if got.Type != TreeCreated {
+			t.Fatalf("expected TreeCreated, got %s", got.Type)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for bridge event")
+	}
+
+	// Cleanup: close bridge channel
+	b.Unsubscribe(bridgeID)
+}
+
+func uriSet(uris []string) map[string]bool {
+	m := make(map[string]bool, len(uris))
+	for _, u := range uris {
+		m[u] = true
+	}
+	return m
 }

@@ -331,6 +331,87 @@ func TestDashboardRESTEndpoints(t *testing.T) {
 	}
 }
 
+func TestCompactApplyEventIntegration(t *testing.T) {
+	bus := events.Get()
+	id, ch := bus.Subscribe()
+	defer bus.Unsubscribe(id)
+
+	// Create a tree and store a solution
+	tr, _, _ := tree.CreateTree("compact test", "bfs", 5, 3)
+	drainEvent(t, ch, events.TreeCreated, 2*time.Second)
+
+	solID, err := retrieval.StoreSolution(tr.ID, "compact problem", "detailed solution with lots of thoughts", nil, nil, 0.7, []string{"compact-test"})
+	if err != nil {
+		t.Fatalf("StoreSolution: %v", err)
+	}
+	drainEvent(t, ch, events.SolutionStored, 2*time.Second)
+
+	// Compact the solution
+	err = retrieval.CompactApply(solID, "short summary")
+	if err != nil {
+		t.Fatalf("CompactApply: %v", err)
+	}
+
+	got := drainEvent(t, ch, events.SolutionCompacted, 2*time.Second)
+	if got.Payload["solutionId"] != solID {
+		t.Fatalf("SolutionCompacted solutionId: got %v, want %s", got.Payload["solutionId"], solID)
+	}
+}
+
+func TestMultipleEventsInSequence(t *testing.T) {
+	// Verify a full tree workflow produces events in order
+	bus := events.Get()
+	id, ch := bus.Subscribe()
+	defer bus.Unsubscribe(id)
+
+	// Create → AddThought → Evaluate → MarkTerminal
+	tr, root, _ := tree.CreateTree("sequence test", "bfs", 5, 3)
+	drainEvent(t, ch, events.TreeCreated, 2*time.Second)
+
+	node, _ := tree.AddThought(tr.ID, root.ID, "the answer", nil)
+	drainEvent(t, ch, events.ThoughtAdded, 2*time.Second)
+
+	tree.EvaluateThought(tr.ID, node.ID, "sure", nil)
+	drainEvent(t, ch, events.ThoughtEvaluated, 2*time.Second)
+
+	tree.MarkTerminal(tr.ID, node.ID)
+	drainEvent(t, ch, events.SolutionMarked, 2*time.Second)
+
+	tree.SetStatus(tr.ID, "solved")
+	got := drainEvent(t, ch, events.TreeStatusChanged, 2*time.Second)
+	if got.Payload["newStatus"] != "solved" {
+		t.Fatalf("expected solved, got %v", got.Payload["newStatus"])
+	}
+}
+
+func TestSolutionLinkedEventIntegration(t *testing.T) {
+	bus := events.Get()
+	id, ch := bus.Subscribe()
+	defer bus.Unsubscribe(id)
+
+	tr, _, _ := tree.CreateTree("link sol test", "bfs", 5, 3)
+	drainEvent(t, ch, events.TreeCreated, 2*time.Second)
+
+	sol1, _ := retrieval.StoreSolution(tr.ID, "problem A", "solution A", nil, nil, 0.8, []string{"a"})
+	drainEvent(t, ch, events.SolutionStored, 2*time.Second)
+
+	sol2, _ := retrieval.StoreSolution(tr.ID, "problem B", "solution B", nil, nil, 0.7, []string{"b"})
+	drainEvent(t, ch, events.SolutionStored, 2*time.Second)
+
+	_, err := retrieval.LinkSolutions(sol1, sol2, "related", "test link")
+	if err != nil {
+		t.Fatalf("LinkSolutions: %v", err)
+	}
+
+	got := drainEvent(t, ch, events.SolutionLinked, 2*time.Second)
+	if got.Payload["sourceId"] != sol1 {
+		t.Fatalf("SolutionLinked sourceId: got %v", got.Payload["sourceId"])
+	}
+	if got.Payload["targetId"] != sol2 {
+		t.Fatalf("SolutionLinked targetId: got %v", got.Payload["targetId"])
+	}
+}
+
 // drainEvent reads from the channel until it finds an event of the expected type,
 // discarding others. Fails if the deadline is reached.
 func drainEvent(t *testing.T, ch <-chan events.Event, wantType string, timeout time.Duration) events.Event {

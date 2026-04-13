@@ -1,6 +1,8 @@
 package events
 
 import (
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -91,5 +93,112 @@ func TestGetSingleton(t *testing.T) {
 	b2 := Get()
 	if b1 != b2 {
 		t.Fatal("Get() should return the same instance")
+	}
+}
+
+func TestConcurrentPublishSubscribe(t *testing.T) {
+	b := &Bus{subs: make(map[int]chan Event)}
+	const numPublishers = 10
+	const numEvents = 100
+
+	id, ch := b.Subscribe()
+	defer b.Unsubscribe(id)
+
+	var wg sync.WaitGroup
+	var received atomic.Int64
+
+	// Consumer
+	done := make(chan struct{})
+	go func() {
+		for range ch {
+			received.Add(1)
+		}
+		close(done)
+	}()
+
+	// Concurrent publishers
+	for p := 0; p < numPublishers; p++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < numEvents; i++ {
+				b.Publish(Event{Type: ThoughtAdded, Timestamp: time.Now()})
+			}
+		}()
+	}
+
+	wg.Wait()
+	time.Sleep(50 * time.Millisecond) // let consumer drain
+	b.Unsubscribe(id)
+	<-done
+
+	got := received.Load()
+	// Some may be dropped due to buffer overflow, but we should get at least bufSize
+	if got < int64(bufSize) {
+		t.Fatalf("received too few events: %d (expected at least %d)", got, bufSize)
+	}
+	t.Logf("received %d of %d events", got, numPublishers*numEvents)
+}
+
+func TestConcurrentSubscribeUnsubscribe(t *testing.T) {
+	b := &Bus{subs: make(map[int]chan Event)}
+
+	var wg sync.WaitGroup
+	// Concurrent subscribe/unsubscribe while publishing
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			id, ch := b.Subscribe()
+			// Read a few events (non-blocking)
+			for j := 0; j < 3; j++ {
+				select {
+				case <-ch:
+				default:
+				}
+			}
+			b.Unsubscribe(id)
+		}()
+	}
+
+	// Publish concurrently
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 200; i++ {
+			b.Publish(Event{Type: TreeCreated, Timestamp: time.Now()})
+		}
+	}()
+
+	wg.Wait()
+	// If we get here without deadlock or panic, the test passes
+}
+
+func TestUnsubscribeIdempotent(t *testing.T) {
+	b := &Bus{subs: make(map[int]chan Event)}
+	id, _ := b.Subscribe()
+	b.Unsubscribe(id)
+	// Second unsubscribe should not panic
+	b.Unsubscribe(id)
+}
+
+func TestPublishNoSubscribers(t *testing.T) {
+	b := &Bus{subs: make(map[int]chan Event)}
+	// Should not panic
+	b.Publish(Event{Type: TreeCreated, Timestamp: time.Now()})
+}
+
+func TestSubscriberIDs(t *testing.T) {
+	b := &Bus{subs: make(map[int]chan Event)}
+	id1, _ := b.Subscribe()
+	id2, _ := b.Subscribe()
+	id3, _ := b.Subscribe()
+	defer b.Unsubscribe(id1)
+	defer b.Unsubscribe(id2)
+	defer b.Unsubscribe(id3)
+
+	// IDs should be unique and sequential
+	if id1 == id2 || id2 == id3 || id1 == id3 {
+		t.Fatalf("IDs not unique: %d, %d, %d", id1, id2, id3)
 	}
 }
