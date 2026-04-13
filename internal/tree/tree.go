@@ -11,6 +11,7 @@ import (
 	"github.com/tot-mcp/tot-mcp-go/internal/db"
 	"github.com/tot-mcp/tot-mcp-go/internal/embeddings"
 	"github.com/tot-mcp/tot-mcp-go/internal/encoding"
+	"github.com/tot-mcp/tot-mcp-go/internal/events"
 )
 
 // Node represents a single thought in the tree.
@@ -93,6 +94,12 @@ func CreateTree(problem, strategy string, maxDepth, branchingFactor int) (*Tree,
 	if err := tx.Commit(); err != nil {
 		return nil, nil, err
 	}
+
+	events.Get().Publish(events.Event{
+		Type: events.TreeCreated, TreeID: treeID,
+		Timestamp: time.Now(),
+		Payload: map[string]any{"problem": problem, "strategy": strategy},
+	})
 
 	tree, _ := GetTree(treeID)
 	node, _ := GetNode(treeID, rootID)
@@ -228,6 +235,11 @@ func AddThought(treeID, parentID, thought string, metadata map[string]any) (*Nod
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
+	events.Get().Publish(events.Event{
+		Type: events.ThoughtAdded, TreeID: treeID, NodeID: nodeID,
+		Timestamp: time.Now(),
+		Payload: map[string]any{"parentId": parentID, "depth": newDepth},
+	})
 	return GetNode(treeID, nodeID)
 }
 
@@ -263,6 +275,11 @@ func EvaluateThought(treeID, nodeID, evaluation string, customScore *float64) (*
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
+	events.Get().Publish(events.Event{
+		Type: events.ThoughtEvaluated, TreeID: treeID, NodeID: nodeID,
+		Timestamp: time.Now(),
+		Payload: map[string]any{"evaluation": evaluation, "score": score},
+	})
 	return GetNode(treeID, nodeID)
 }
 
@@ -298,6 +315,10 @@ func MarkTerminal(treeID, nodeID string) (*Node, error) {
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
+	events.Get().Publish(events.Event{
+		Type: events.SolutionMarked, TreeID: treeID, NodeID: nodeID,
+		Timestamp: time.Now(),
+	})
 	return GetNode(treeID, nodeID)
 }
 
@@ -371,6 +392,12 @@ func Backtrack(treeID, nodeID string) (*Node, error) {
 		d.Exec(fmt.Sprintf(`DELETE FROM frontier WHERE tree_id=? AND node_id IN (%s)`, placeholders), args...)
 	}
 	d.Exec(`UPDATE trees SET updated_at=? WHERE id=?`, now(), treeID)
+
+	events.Get().Publish(events.Event{
+		Type: events.SubtreePruned, TreeID: treeID, NodeID: nodeID,
+		Timestamp: time.Now(),
+		Payload: map[string]any{"prunedCount": len(ids)},
+	})
 
 	if node.ParentID != nil {
 		return GetNode(treeID, *node.ParentID)
@@ -560,6 +587,13 @@ func SetStatus(treeID, newStatus string) error {
 	}
 
 	_, err = d.Exec(`UPDATE trees SET status=?, updated_at=? WHERE id=?`, newStatus, now(), treeID)
+	if err == nil {
+		events.Get().Publish(events.Event{
+			Type: events.TreeStatusChanged, TreeID: treeID,
+			Timestamp: time.Now(),
+			Payload: map[string]any{"oldStatus": tree.Status, "newStatus": newStatus},
+		})
+	}
 	return err
 }
 
@@ -582,6 +616,13 @@ func AutoPause(staleMinutes int) int {
 		return 0
 	}
 	n, _ := res.RowsAffected()
+	if n > 0 {
+		events.Get().Publish(events.Event{
+			Type: events.TreeAutoPaused,
+			Timestamp: time.Now(),
+			Payload: map[string]any{"count": int(n), "staleMinutes": staleMinutes},
+		})
+	}
 	return int(n)
 }
 
@@ -769,6 +810,12 @@ func LinkTrees(sourceTree, targetTree, linkType, note string) (*TreeLink, error)
 	if err != nil {
 		return nil, err
 	}
+
+	events.Get().Publish(events.Event{
+		Type: events.TreeLinked, TreeID: sourceTree,
+		Timestamp: time.Now(),
+		Payload: map[string]any{"targetTree": targetTree, "linkType": linkType},
+	})
 
 	return &TreeLink{ID: id, SourceTree: sourceTree, TargetTree: targetTree,
 		LinkType: linkType, Note: note, CreatedAt: ts}, nil
