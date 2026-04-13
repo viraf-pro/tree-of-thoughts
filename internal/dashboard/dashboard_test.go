@@ -431,6 +431,79 @@ func TestFindBestPath(t *testing.T) {
 	t.Logf("best path: %v", path)
 }
 
+func TestHandleCreateTree(t *testing.T) {
+	body := strings.NewReader(`{"problem":"test create from dashboard","strategy":"dfs"}`)
+	req := httptest.NewRequest("POST", "/api/trees", body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handleTrees(w, req)
+
+	resp := w.Result()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status: %d", resp.StatusCode)
+	}
+
+	var result map[string]any
+	json.NewDecoder(resp.Body).Decode(&result)
+	if result["id"] == nil || result["id"] == "" {
+		t.Fatal("missing id in response")
+	}
+	if result["problem"] != "test create from dashboard" {
+		t.Fatalf("problem: got %v", result["problem"])
+	}
+	if result["strategy"] != "dfs" {
+		t.Fatalf("strategy: got %v", result["strategy"])
+	}
+	if result["rootId"] == nil || result["rootId"] == "" {
+		t.Fatal("missing rootId")
+	}
+}
+
+func TestHandleCreateTreeDefaultStrategy(t *testing.T) {
+	body := strings.NewReader(`{"problem":"test default strategy"}`)
+	req := httptest.NewRequest("POST", "/api/trees", body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handleTrees(w, req)
+
+	resp := w.Result()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status: %d", resp.StatusCode)
+	}
+
+	var result map[string]any
+	json.NewDecoder(resp.Body).Decode(&result)
+	if result["strategy"] != "beam" {
+		t.Fatalf("expected default strategy 'beam', got %v", result["strategy"])
+	}
+}
+
+func TestHandleCreateTreeMissingProblem(t *testing.T) {
+	body := strings.NewReader(`{"strategy":"bfs"}`)
+	req := httptest.NewRequest("POST", "/api/trees", body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handleTrees(w, req)
+
+	resp := w.Result()
+	if resp.StatusCode != 400 {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestHandleCreateTreeInvalidJSON(t *testing.T) {
+	body := strings.NewReader(`not json`)
+	req := httptest.NewRequest("POST", "/api/trees", body)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handleTrees(w, req)
+
+	resp := w.Result()
+	if resp.StatusCode != 400 {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
 func TestFindBestPathNoTree(t *testing.T) {
 	d := db.Get()
 	path := findBestPath(d, "nonexistent")

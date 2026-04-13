@@ -99,6 +99,20 @@ h1{font-size:18px;font-weight:500;margin-bottom:4px}
 .chart-wrap{position:relative;height:220px;margin-top:8px}
 #app{min-height:300px}
 .empty{text-align:center;padding:60px 20px;color:var(--tx2);font-size:14px}
+.header-row{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px}
+.btn{font-size:13px;font-weight:500;padding:8px 16px;border-radius:var(--radius);border:none;cursor:pointer;transition:background .15s}
+.btn-primary{background:var(--blue);color:#fff}
+.btn-primary:hover{opacity:0.9}
+.btn-ghost{background:transparent;color:var(--tx2);border:0.5px solid var(--bd)}
+.btn-ghost:hover{background:var(--bg2)}
+.create-form{border:0.5px solid var(--bd);border-radius:var(--radius);padding:16px;margin-bottom:16px;display:none}
+.create-form.open{display:block}
+.create-form input,.create-form select{font-family:var(--sans);font-size:14px;padding:8px 12px;border:0.5px solid var(--bd);border-radius:var(--radius);background:var(--bg);color:var(--tx);width:100%;box-sizing:border-box}
+.create-form input:focus,.create-form select:focus{outline:none;border-color:var(--blue)}
+.create-form label{font-size:12px;color:var(--tx2);display:block;margin-bottom:4px;margin-top:12px}
+.create-form label:first-child{margin-top:0}
+.create-form-actions{display:flex;gap:8px;margin-top:16px;justify-content:flex-end}
+.create-form .error{font-size:12px;color:var(--red);margin-top:8px;display:none}
 </style>
 </head>
 <body>
@@ -127,19 +141,64 @@ function render() {
 
 async function renderTreeList() {
   const trees = await fetchJSON('/api/trees');
+  let html = '<div class="header-row"><div><h1>Tree of Thoughts</h1><p class="subtitle">All reasoning trees</p></div>';
+  html += '<button class="btn btn-primary" onclick="toggleCreateForm()">+ New Tree</button></div>';
+  html += '<div class="create-form" id="create-form">';
+  html += '<label>Problem statement</label>';
+  html += '<input type="text" id="cf-problem" placeholder="What problem should the tree explore?">';
+  html += '<label>Search strategy</label>';
+  html += '<select id="cf-strategy"><option value="beam">Beam search</option><option value="bfs">Breadth-first</option><option value="dfs">Depth-first</option></select>';
+  html += '<div class="error" id="cf-error"></div>';
+  html += '<div class="create-form-actions">';
+  html += '<button class="btn btn-ghost" onclick="toggleCreateForm()">Cancel</button>';
+  html += '<button class="btn btn-primary" onclick="submitCreateTree()">Create</button>';
+  html += '</div></div>';
   if (!trees || trees.length === 0) {
-    app.innerHTML = '<div class="empty"><h1>Tree of Thoughts</h1><p style="margin-top:8px">No reasoning trees yet. Use the MCP tools to create one.</p></div>';
-    return;
-  }
-  let html = '<h1>Tree of Thoughts</h1><p class="subtitle">All reasoning trees</p>';
-  for (const t of trees) {
-    html += '<div class="tree-list-item" onclick="location.hash=\'tree/'+t.id+'\'">';
-    html += '<div><div class="tree-problem">'+esc(t.problem)+'</div>';
-    html += '<div class="tree-meta"><span>'+t.nodeCount+' nodes</span><span>'+t.experimentCount+' experiments</span><span>'+t.strategy+'</span></div></div>';
-    html += '<span class="tag '+(t.status==='active'?'tag-keep':'tag-discard')+'">'+t.status+'</span>';
-    html += '</div>';
+    html += '<div class="empty"><p>No reasoning trees yet. Create one above.</p></div>';
+  } else {
+    for (const t of trees) {
+      html += '<div class="tree-list-item" onclick="location.hash=\'tree/'+t.id+'\'">';
+      html += '<div><div class="tree-problem">'+esc(t.problem)+'</div>';
+      html += '<div class="tree-meta"><span>'+t.nodeCount+' nodes</span><span>'+t.experimentCount+' experiments</span><span>'+t.strategy+'</span></div></div>';
+      html += '<span class="tag '+(t.status==='active'?'tag-keep':'tag-discard')+'">'+t.status+'</span>';
+      html += '</div>';
+    }
   }
   app.innerHTML = html;
+}
+
+function toggleCreateForm() {
+  const form = document.getElementById('create-form');
+  if (form) form.classList.toggle('open');
+}
+
+async function submitCreateTree() {
+  const problem = document.getElementById('cf-problem').value.trim();
+  const strategy = document.getElementById('cf-strategy').value;
+  const errEl = document.getElementById('cf-error');
+  if (!problem) {
+    errEl.textContent = 'Please enter a problem statement.';
+    errEl.style.display = 'block';
+    return;
+  }
+  errEl.style.display = 'none';
+  try {
+    const res = await fetch('/api/trees', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({problem, strategy})
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      errEl.textContent = data.error || 'Failed to create tree.';
+      errEl.style.display = 'block';
+      return;
+    }
+    location.hash = 'tree/' + data.id;
+  } catch (e) {
+    errEl.textContent = 'Network error: ' + e.message;
+    errEl.style.display = 'block';
+  }
 }
 
 async function renderTreeDetail() {

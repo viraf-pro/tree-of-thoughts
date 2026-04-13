@@ -12,6 +12,7 @@ import (
 
 	"github.com/tot-mcp/tot-mcp-go/internal/db"
 	"github.com/tot-mcp/tot-mcp-go/internal/events"
+	"github.com/tot-mcp/tot-mcp-go/internal/tree"
 )
 
 var srv *http.Server
@@ -68,6 +69,10 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleTrees(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		handleCreateTree(w, r)
+		return
+	}
 	d := db.Get()
 	rows, err := d.Query(`SELECT t.id, t.problem, t.search_strategy, t.status, t.created_at,
 		(SELECT COUNT(*) FROM nodes WHERE tree_id=t.id) as node_count,
@@ -90,6 +95,38 @@ func handleTrees(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	jsonOK(w, out)
+}
+
+func handleCreateTree(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Problem  string `json:"problem"`
+		Strategy string `json:"strategy"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		jsonErr(w, fmt.Errorf("invalid JSON body"))
+		return
+	}
+	if body.Problem == "" {
+		jsonErr(w, fmt.Errorf("problem is required"))
+		return
+	}
+	if body.Strategy == "" {
+		body.Strategy = "beam"
+	}
+
+	t, root, err := tree.CreateTree(body.Problem, body.Strategy, 5, 3)
+	if err != nil {
+		jsonErr(w, err)
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	jsonOK(w, map[string]any{
+		"id":       t.ID,
+		"problem":  t.Problem,
+		"strategy": t.SearchStrategy,
+		"rootId":   root.ID,
+	})
 }
 
 func handleTreeDetail(w http.ResponseWriter, r *http.Request) {
