@@ -16,6 +16,7 @@ import (
 	"github.com/tot-mcp/tot-mcp-go/internal/db"
 	"github.com/tot-mcp/tot-mcp-go/internal/embeddings"
 	"github.com/tot-mcp/tot-mcp-go/internal/encoding"
+	"github.com/tot-mcp/tot-mcp-go/internal/events"
 )
 
 // Result is a retrieved solution with match info.
@@ -62,6 +63,11 @@ func StoreSolution(treeID, problem, solution string, thoughts, pathIDs []string,
 	if err == nil {
 		autoLinkRelated(id, problem)
 		LogKnowledgeEvent("stored", id, fmt.Sprintf("tree=%s tags=%v", treeID, tags))
+		events.Get().Publish(events.Event{
+			Type: events.SolutionStored, TreeID: treeID,
+			Timestamp: time.Now(),
+			Payload: map[string]any{"solutionId": id, "tags": tags},
+		})
 	}
 	return id, err
 }
@@ -377,7 +383,15 @@ func CompactApply(solutionID, summary string) error {
 		return fmt.Errorf("compact update failed: %w", err)
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	events.Get().Publish(events.Event{
+		Type:      events.SolutionCompacted,
+		Timestamp: time.Now(),
+		Payload:   map[string]any{"solutionId": solutionID},
+	})
+	return nil
 }
 
 // CompactRestore restores a compacted solution to its original full content.
@@ -473,6 +487,11 @@ func LinkSolutionsWithConfidence(sourceID, targetID, linkType, note string, conf
 	}
 
 	LogKnowledgeEvent("linked", sourceID, fmt.Sprintf("%s -> %s (%s conf=%.2f)", truncID(sourceID), truncID(targetID), linkType, confidence))
+	events.Get().Publish(events.Event{
+		Type:      events.SolutionLinked,
+		Timestamp: time.Now(),
+		Payload:   map[string]any{"sourceId": sourceID, "targetId": targetID, "linkType": linkType, "confidence": confidence},
+	})
 
 	return &SolutionLink{
 		ID: id, SourceID: sourceID, TargetID: targetID,
