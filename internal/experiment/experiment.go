@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/tot-mcp/tot-mcp-go/internal/db"
+	"github.com/tot-mcp/tot-mcp-go/internal/events"
 	"github.com/tot-mcp/tot-mcp-go/internal/tree"
 )
 
@@ -111,6 +112,12 @@ func Prepare(treeID, content, commitMsg string) (*PrepareResult, error) {
 		return nil, fmt.Errorf("git commit failed: %w", err)
 	}
 
+	events.Get().Publish(events.Event{
+		Type: events.ExperimentPrepared, TreeID: treeID,
+		Timestamp: time.Now(),
+		Payload: map[string]any{"commitHash": hash, "branch": branch},
+	})
+
 	return &PrepareResult{CommitHash: hash, PreviousHash: prevHash, Branch: branch}, nil
 }
 
@@ -186,6 +193,20 @@ func Execute(treeID, nodeID, previousHash string) (*Result, error) {
 
 	// Log result
 	logResult(treeID, nodeID, &result)
+
+	evtType := events.ExperimentCompleted
+	if result.Status == "crashed" || result.Status == "timeout" {
+		evtType = events.ExperimentFailed
+	}
+	payload := map[string]any{"status": result.Status, "kept": result.Kept, "durationSeconds": result.DurationSecs}
+	if result.Metric != nil {
+		payload["metric"] = *result.Metric
+	}
+	events.Get().Publish(events.Event{
+		Type: evtType, TreeID: treeID, NodeID: nodeID,
+		Timestamp: time.Now(),
+		Payload: payload,
+	})
 
 	return &result, nil
 }
