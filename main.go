@@ -70,6 +70,7 @@ func main() {
 	registerExperimentTools(s)
 	registerKnowledgeTools(s)
 	resources.Register(s)
+	events.StartMCPBridge(s)
 
 	// dashboard tool
 	s.AddTool(mcp.NewTool("open_dashboard",
