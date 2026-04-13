@@ -585,19 +585,16 @@ function togglePath(idx) {
 window.addEventListener('hashchange', render);
 render();
 // Live updates via SSE, fallback to polling
+let _t; function dr(){clearTimeout(_t);_t=setTimeout(render,100);}
 if (typeof EventSource !== 'undefined') {
   const es = new EventSource('/api/events');
-  es.addEventListener('tree.created', () => render());
-  es.addEventListener('thought.added', () => { if (location.hash.startsWith('#tree/')) render(); });
-  es.addEventListener('thought.evaluated', () => { if (location.hash.startsWith('#tree/')) render(); });
-  es.addEventListener('subtree.pruned', () => { if (location.hash.startsWith('#tree/')) render(); });
-  es.addEventListener('solution.marked', () => render());
-  es.addEventListener('tree.status_changed', () => render());
-  es.addEventListener('tree.auto_paused', () => render());
-  es.addEventListener('experiment.completed', () => { if (location.hash.startsWith('#tree/')) render(); });
-  es.addEventListener('experiment.failed', () => { if (location.hash.startsWith('#tree/')) render(); });
-  es.addEventListener('solution.stored', () => { if (location.hash.startsWith('#tree/')) render(); });
-  es.addEventListener('solution.compacted', () => render());
+  ['tree.created','tree.status_changed','tree.auto_paused','tree.linked',
+   'solution.marked','solution.compacted','solution.linked','url.ingested'
+  ].forEach(e => es.addEventListener(e, dr));
+  ['thought.added','thought.evaluated','subtree.pruned',
+   'experiment.prepared','experiment.completed','experiment.failed',
+   'solution.stored'
+  ].forEach(e => es.addEventListener(e, () => { if (location.hash.startsWith('#tree/')) dr(); else dr(); }));
   es.onerror = () => {
     es.close();
     setInterval(render, 10000);

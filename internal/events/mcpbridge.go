@@ -41,7 +41,7 @@ func affectedURIs(e Event) []string {
 		uris = append(uris, fmt.Sprintf("tot://tree/%s", e.TreeID))
 
 		switch e.Type {
-		case ThoughtAdded, SubtreePruned:
+		case ThoughtAdded, ThoughtEvaluated, SubtreePruned:
 			uris = append(uris, fmt.Sprintf("tot://tree/%s/frontier", e.TreeID))
 		case TreeStatusChanged, TreeAutoPaused:
 			uris = append(uris, fmt.Sprintf("tot://tree/%s/status", e.TreeID))
