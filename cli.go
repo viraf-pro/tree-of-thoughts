@@ -64,6 +64,25 @@ func runCLI(args []string) bool {
 			}
 		}
 		cliCreate(strings.Join(problem, " "), strategy)
+	case "add":
+		if len(args) < 5 {
+			fatal("Usage: tot-mcp add <tree_id> <parent_id> <thought>")
+		}
+		cliAdd(args[2], args[3], strings.Join(args[4:], " "))
+	case "eval":
+		if len(args) < 5 {
+			fatal("Usage: tot-mcp eval <tree_id> <node_id> <sure|maybe|impossible> [score]")
+		}
+		var score string
+		if len(args) >= 6 {
+			score = args[5]
+		}
+		cliEval(args[2], args[3], args[4], score)
+	case "solve":
+		if len(args) < 4 {
+			fatal("Usage: tot-mcp solve <tree_id> <node_id>")
+		}
+		cliSolve(args[2], args[3])
 	case "ready":
 		cliReady()
 	case "audit":
@@ -120,6 +139,9 @@ COMMANDS:
   show <tree_id>             Show tree summary and best path
   route <problem>            Check if problem matches an existing tree
   create <problem>           Create a new tree (default: beam search)
+  add <tree> <parent> <thought>  Add a thought to a tree node
+  eval <tree> <node> <evaluation> [score]  Evaluate a thought (sure/maybe/impossible)
+  solve <tree> <node>        Mark a node as the solution
   ready                      Show active trees with frontier nodes
   audit [tree_id]            View audit trail (last 20 entries)
   stats                      Retrieval store statistics
@@ -194,6 +216,49 @@ func cliCreate(problem, strategy string) {
 	fmt.Printf("  Problem:  %s\n", t.Problem)
 	fmt.Printf("  Strategy: %s\n", t.SearchStrategy)
 	fmt.Printf("  Root:     %s\n", root.ID)
+}
+
+func cliAdd(treeID, parentID, thought string) {
+	node, err := tree.AddThought(treeID, parentID, thought, nil)
+	if err != nil {
+		fatal(err.Error())
+	}
+	fmt.Printf("Added node %s\n", node.ID)
+	fmt.Printf("  Tree:    %s\n", treeID)
+	fmt.Printf("  Parent:  %s\n", parentID)
+	fmt.Printf("  Depth:   %d\n", node.Depth)
+	fmt.Printf("  Thought: %s\n", truncate(thought, 80))
+}
+
+func cliEval(treeID, nodeID, evaluation, scoreStr string) {
+	var scorePtr *float64
+	if scoreStr != "" {
+		var s float64
+		if _, err := fmt.Sscanf(scoreStr, "%f", &s); err != nil {
+			fatal(fmt.Sprintf("invalid score %q: %v", scoreStr, err))
+		}
+		scorePtr = &s
+	}
+	node, err := tree.EvaluateThought(treeID, nodeID, evaluation, scorePtr)
+	if err != nil {
+		fatal(err.Error())
+	}
+	fmt.Printf("Evaluated node %s\n", node.ID)
+	fmt.Printf("  Evaluation: %s\n", evaluation)
+	fmt.Printf("  Score:      %.2f\n", node.Score)
+}
+
+func cliSolve(treeID, nodeID string) {
+	node, err := tree.MarkTerminal(treeID, nodeID)
+	if err != nil {
+		fatal(err.Error())
+	}
+	path, _ := tree.GetPathToNode(treeID, node.ID)
+	fmt.Printf("Solution marked: %s\n", node.ID)
+	if path != nil {
+		fmt.Printf("  Path:  %s\n", strings.Join(path.Thoughts, " → "))
+		fmt.Printf("  Score: %.2f avg\n", path.AverageScore)
+	}
 }
 
 func cliReady() {
