@@ -584,7 +584,27 @@ function togglePath(idx) {
 
 window.addEventListener('hashchange', render);
 render();
-setInterval(render, 10000);
+// Live updates via SSE, fallback to polling
+if (typeof EventSource !== 'undefined') {
+  const es = new EventSource('/api/events');
+  es.addEventListener('tree.created', () => render());
+  es.addEventListener('thought.added', () => { if (location.hash.startsWith('#tree/')) render(); });
+  es.addEventListener('thought.evaluated', () => { if (location.hash.startsWith('#tree/')) render(); });
+  es.addEventListener('subtree.pruned', () => { if (location.hash.startsWith('#tree/')) render(); });
+  es.addEventListener('solution.marked', () => render());
+  es.addEventListener('tree.status_changed', () => render());
+  es.addEventListener('tree.auto_paused', () => render());
+  es.addEventListener('experiment.completed', () => { if (location.hash.startsWith('#tree/')) render(); });
+  es.addEventListener('experiment.failed', () => { if (location.hash.startsWith('#tree/')) render(); });
+  es.addEventListener('solution.stored', () => { if (location.hash.startsWith('#tree/')) render(); });
+  es.addEventListener('solution.compacted', () => render());
+  es.onerror = () => {
+    es.close();
+    setInterval(render, 10000);
+  };
+} else {
+  setInterval(render, 10000);
+}
 </script>
 </body>
 </html>`
