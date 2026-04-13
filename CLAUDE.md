@@ -27,7 +27,7 @@ There are no tests in this codebase currently. No package.json — this is a pur
 The binary operates in two modes based on `os.Args`: CLI mode (with arguments) or MCP server mode (no arguments, stdio JSON-RPC).
 
 ### Root-level files
-- **main.go** — MCP server setup, tool registration (28 tools across 4 categories), embedding provider init, dashboard startup
+- **main.go** — MCP server setup, tool registration (39 tools across 4 categories), resource registration, event bus + MCP bridge startup, embedding provider init, dashboard startup
 - **cli.go** — Lightweight CLI dispatcher (~1-2k tokens vs 10-50k for full MCP schemas)
 
 ### Internal packages (`internal/`)
@@ -39,7 +39,9 @@ The binary operates in two modes based on `os.Args`: CLI mode (with arguments) o
 | `retrieval` | Hybrid search: vector cosine similarity + FTS5 keyword, 20% boost for dual-match, solution compaction (memory decay at 30+ days) |
 | `embeddings` | Pluggable provider interface (`Embed(text) → []float32`). Auto-selects: OpenAI → Voyage → Ollama → local Hugot (pure Go ONNX, all-MiniLM-L6-v2) → Noop |
 | `experiment` | Two-phase autonomous runner: prepare (apply patch, git commit) → execute (run command, parse metric via regex, auto-evaluate, rollback on failure) |
-| `dashboard` | HTTP API server + embedded SPA (SVG tree visualization, Chart.js metrics). Endpoints at `/api/trees`, `/api/tree/:id`, etc. |
+| `events` | Internal event bus (typed pub/sub, buffered channel fan-out, global singleton). MCP notification bridge maps events to affected resource URIs and calls `SendNotificationToAllClients`. 15 event types across tree, experiment, retrieval, and knowledge domains |
+| `resources` | MCP resource templates (7 URI patterns: `tot://trees`, `tot://tree/{id}`, `tot://tree/{id}/frontier`, `tot://tree/{id}/experiments`, `tot://tree/{id}/status`, `tot://solutions`, `tot://solution/{id}`). Read handlers backed by the same SQLite queries as the dashboard |
+| `dashboard` | HTTP API server + embedded SPA (SVG tree visualization, Chart.js metrics). SSE endpoint (`/api/events`) for real-time push updates. REST endpoints at `/api/trees`, `/api/tree/:id`, etc. |
 
 ### Key design patterns
 - **Single-writer SQLite:** `SetMaxOpenConns(1)`, WAL mode, foreign keys enabled

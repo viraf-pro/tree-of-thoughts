@@ -1,6 +1,6 @@
 # Tree of Thoughts MCP
 
-A single-binary MCP server for tree-structured reasoning with persistent storage, hybrid retrieval, a compounding knowledge graph, web research ingestion, an autonomous experiment runner, and a live web dashboard.
+A single-binary MCP server for tree-structured reasoning with persistent storage, hybrid retrieval, a compounding knowledge graph, web research ingestion, real-time subscriptions, an autonomous experiment runner, and a live web dashboard.
 
 Built on the [Tree of Thoughts](https://arxiv.org/abs/2305.10601) framework (Yao et al., 2023). The server gives LLMs structured exploration over multiple reasoning paths with evaluation, backtracking, and search algorithms, instead of linear chain-of-thought.
 
@@ -50,7 +50,9 @@ Everything the AI figures out gets saved in a **compounding knowledge graph**. S
 
 **Experiment runner.** An optional autoresearch-style loop: modify code, run training/evaluation, parse the metric, keep or discard, repeat. The ToT tree guides which experiments to try. Inspired by [karpathy/autoresearch](https://github.com/karpathy/autoresearch).
 
-**Live dashboard.** A web UI at `localhost:4545` renders an interactive D3 radial tree with click-to-explore path analysis, experiment history, metric charts, and a full-text solution store. Auto-refreshes every 10 seconds.
+**Real-time subscriptions.** An internal event bus publishes typed events for every mutation (thought added, evaluated, pruned, solution stored, experiment completed, etc.). Three consumers tap in: MCP clients receive `notifications/resources/updated` for subscribed resource URIs, the web dashboard gets instant SSE updates, and all events are logged. Clients can subscribe to 7 resource URI patterns (`tot://tree/{id}`, `tot://tree/{id}/frontier`, `tot://solutions`, etc.) and get notified the moment something changes.
+
+**Live dashboard.** A web UI at `localhost:4545` renders an interactive D3 radial tree with click-to-explore path analysis, experiment history, metric charts, and a full-text solution store. Updates in real-time via Server-Sent Events (SSE), with polling fallback.
 
 ## Quick start
 
@@ -570,7 +572,7 @@ This project incorporates ideas from three sources:
 # Build
 go build -o tot-mcp .
 
-# Run tests (108 tests across 7 packages)
+# Run tests (183 tests across 10 packages)
 go test ./...
 
 # Type check
