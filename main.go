@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/tot-mcp/tot-mcp-go/internal/db"
+	"github.com/tot-mcp/tot-mcp-go/internal/events"
 	"github.com/tot-mcp/tot-mcp-go/internal/dashboard"
 	"github.com/tot-mcp/tot-mcp-go/internal/embeddings"
 	"github.com/tot-mcp/tot-mcp-go/internal/experiment"
@@ -898,6 +900,12 @@ func registerKnowledgeTools(s *server.MCPServer) {
 		}
 
 		db.LogAudit("", "", "ingest_url", map[string]any{"url": rawURL}, fmt.Sprintf("stored as %s", id))
+
+		events.Get().Publish(events.Event{
+			Type:      events.URLIngested,
+			Timestamp: time.Now(),
+			Payload:   map[string]any{"solutionId": id, "url": rawURL},
+		})
 
 		return textResult(map[string]any{
 			"message":      "URL ingested and stored as solution.",
