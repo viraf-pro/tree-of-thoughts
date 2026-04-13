@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/tot-mcp/tot-mcp-go/internal/db"
+	"github.com/tot-mcp/tot-mcp-go/internal/events"
 )
 
 var srv *http.Server
@@ -23,6 +24,7 @@ func Start(port int) (string, error) {
 	mux.HandleFunc("/api/tree/", handleTreeDetail)
 	mux.HandleFunc("/api/experiments/", handleExperiments)
 	mux.HandleFunc("/api/retrieval/", handleRetrieval)
+	mux.HandleFunc("/api/events", handleSSE)
 
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	ln, err := net.Listen("tcp", addr)
@@ -258,6 +260,41 @@ func handleRetrieval(w http.ResponseWriter, r *http.Request) {
 		"solutions": sols,
 		"stats":     map[string]any{"total": totalSols, "withEmbeddings": withEmb},
 	})
+}
+
+func handleSSE(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	bus := events.Get()
+	id, ch := bus.Subscribe()
+	defer bus.Unsubscribe(id)
+
+	// Send initial keepalive
+	fmt.Fprintf(w, ": connected\n\n")
+	flusher.Flush()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case evt, ok := <-ch:
+			if !ok {
+				return
+			}
+			data, _ := json.Marshal(evt)
+			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", evt.Type, data)
+			flusher.Flush()
+		}
+	}
 }
 
 // --- Helpers ---
