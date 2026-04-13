@@ -1,0 +1,54 @@
+version: 2
+
+project_name: tot-mcp
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: tot-mcp
+    binary: tot-mcp
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+
+archives:
+  - id: default
+    formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}-{{ .Os }}-{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+
+release:
+  github:
+    owner: viraf-pro
+    name: tree-of-thoughts
+  draft: false
+  prerelease: auto
+  name_template: "{{ .Tag }}"
