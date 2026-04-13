@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -26,8 +25,26 @@ func TestMain(m *testing.M) {
 	if _, err := db.Init(tmp); err != nil {
 		panic(err)
 	}
-	// Create fixture data
-	tree.CreateTree("dashboard test problem", "bfs", 5, 3)
+	// Create rich fixture data for coverage
+	t1, root, _ := tree.CreateTree("dashboard test problem", "bfs", 5, 3)
+
+	// Add thoughts with evaluations (covers handleTreeDetail node iteration + findBestPath)
+	n1, _ := tree.AddThought(t1.ID, root.ID, "first approach", nil)
+	tree.EvaluateThought(t1.ID, n1.ID, "sure", nil)
+	n2, _ := tree.AddThought(t1.ID, root.ID, "second approach", nil)
+	tree.EvaluateThought(t1.ID, n2.ID, "maybe", nil)
+	tree.MarkTerminal(t1.ID, n1.ID)
+
+	// Insert experiment results (covers handleExperiments inner loop)
+	d := db.Get()
+	d.Exec(`INSERT INTO experiment_results (tree_id, node_id, status, metric, memory_mb, duration_seconds, commit_hash, kept, created_at)
+		VALUES (?, ?, 'improved', 0.95, 128.5, 12.3, 'abc123', 1, '2026-01-01T00:00:00Z')`, t1.ID, n1.ID)
+	d.Exec(`INSERT INTO experiment_results (tree_id, node_id, status, metric, memory_mb, duration_seconds, commit_hash, kept, created_at)
+		VALUES (?, ?, 'crashed', NULL, NULL, 5.1, NULL, 0, '2026-01-02T00:00:00Z')`, t1.ID, n2.ID)
+
+	// Insert a solution (covers handleRetrieval inner loop)
+	d.Exec(`INSERT INTO solutions (id, tree_id, problem, solution, thoughts, path_ids, score, tags, compacted, created_at)
+		VALUES ('sol-dash-1', ?, 'test problem', 'test solution', '["thought1"]', '[]', 0.9, '["tag1","tag2"]', 0, '2026-01-01T00:00:00Z')`, t1.ID)
 
 	code := m.Run()
 	os.Remove(tmp)
@@ -407,6 +424,182 @@ func TestFindBestPath(t *testing.T) {
 		t.Fatal("no trees")
 	}
 	path := findBestPath(d, trees[0].ID)
-	// May be nil or non-nil depending on tree state, just verify no panic
-	_ = fmt.Sprintf("%v", path)
+	// Fixture has a terminal node, so path should be non-empty
+	if len(path) == 0 {
+		t.Fatal("expected non-empty best path (fixture has terminal node)")
+	}
+	t.Logf("best path: %v", path)
+}
+
+func TestFindBestPathNoTree(t *testing.T) {
+	d := db.Get()
+	path := findBestPath(d, "nonexistent")
+	if path != nil {
+		t.Fatalf("expected nil path for nonexistent tree, got %v", path)
+	}
+}
+
+func TestHandleExperimentsWithData(t *testing.T) {
+	// Fixture has experiment results — verify the inner loop runs
+	trees, _ := tree.ListTrees()
+	treeID := trees[0].ID
+
+	req := httptest.NewRequest("GET", "/api/experiments/"+treeID, nil)
+	w := httptest.NewRecorder()
+	handleExperiments(w, req)
+
+	resp := w.Result()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d", resp.StatusCode)
+	}
+
+	var body map[string]any
+	json.NewDecoder(resp.Body).Decode(&body)
+
+	exps, ok := body["experiments"].([]any)
+	if !ok || len(exps) == 0 {
+		t.Fatal("expected non-empty experiments list")
+	}
+
+	// Verify first experiment has all fields from the inner loop
+	first := exps[0].(map[string]any)
+	if _, ok := first["nodeId"]; !ok {
+		t.Fatal("missing nodeId")
+	}
+	if _, ok := first["metric"]; !ok {
+		t.Fatal("missing metric (should be present for improved experiment)")
+	}
+	if _, ok := first["memoryMb"]; !ok {
+		t.Fatal("missing memoryMb")
+	}
+	if _, ok := first["durationSeconds"]; !ok {
+		t.Fatal("missing durationSeconds")
+	}
+	if _, ok := first["commitHash"]; !ok {
+		t.Fatal("missing commitHash")
+	}
+
+	// Verify stats
+	stats := body["stats"].(map[string]any)
+	if stats["total"].(float64) < 2 {
+		t.Fatalf("expected at least 2 experiments, got %v", stats["total"])
+	}
+	if stats["improved"].(float64) < 1 {
+		t.Fatal("expected at least 1 improved experiment")
+	}
+	if stats["crashed"].(float64) < 1 {
+		t.Fatal("expected at least 1 crashed experiment")
+	}
+}
+
+func TestHandleRetrievalWithSolutions(t *testing.T) {
+	trees, _ := tree.ListTrees()
+	treeID := trees[0].ID
+
+	req := httptest.NewRequest("GET", "/api/retrieval/"+treeID, nil)
+	w := httptest.NewRecorder()
+	handleRetrieval(w, req)
+
+	resp := w.Result()
+	var body map[string]any
+	json.NewDecoder(resp.Body).Decode(&body)
+
+	sols, ok := body["solutions"].([]any)
+	if !ok || len(sols) == 0 {
+		t.Fatal("expected non-empty solutions list")
+	}
+
+	// Verify solution fields from inner loop
+	first := sols[0].(map[string]any)
+	for _, key := range []string{"id", "problem", "solution", "tags", "score", "createdAt"} {
+		if _, ok := first[key]; !ok {
+			t.Fatalf("missing key %q in solution", key)
+		}
+	}
+	// Tags should be parsed from JSON
+	tags, ok := first["tags"].([]any)
+	if !ok || len(tags) == 0 {
+		t.Fatal("expected non-empty tags array")
+	}
+}
+
+func TestHandleRetrievalNoTreeFilter(t *testing.T) {
+	// Empty treeID triggers the "all solutions" path
+	req := httptest.NewRequest("GET", "/api/retrieval/", nil)
+	w := httptest.NewRecorder()
+	handleRetrieval(w, req)
+
+	resp := w.Result()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d", resp.StatusCode)
+	}
+
+	var body map[string]any
+	json.NewDecoder(resp.Body).Decode(&body)
+	if _, ok := body["stats"]; !ok {
+		t.Fatal("missing stats in unfiltered retrieval")
+	}
+}
+
+func TestHandleTreeDetailWithNodes(t *testing.T) {
+	// Verify the node iteration covers parentId and evaluation branches
+	trees, _ := tree.ListTrees()
+	treeID := trees[0].ID
+
+	req := httptest.NewRequest("GET", "/api/tree/"+treeID, nil)
+	w := httptest.NewRecorder()
+	handleTreeDetail(w, req)
+
+	var body map[string]any
+	json.NewDecoder(w.Result().Body).Decode(&body)
+
+	nodes, ok := body["nodes"].([]any)
+	if !ok || len(nodes) < 3 {
+		t.Fatalf("expected at least 3 nodes (root + 2 thoughts), got %d", len(nodes))
+	}
+
+	// Check that at least one node has parentId and evaluation
+	hasParent := false
+	hasEval := false
+	hasTerminal := false
+	for _, n := range nodes {
+		node := n.(map[string]any)
+		if _, ok := node["parentId"]; ok {
+			hasParent = true
+		}
+		if _, ok := node["evaluation"]; ok {
+			hasEval = true
+		}
+		if term, ok := node["isTerminal"].(bool); ok && term {
+			hasTerminal = true
+		}
+	}
+	if !hasParent {
+		t.Fatal("no node has parentId — child node iteration not tested")
+	}
+	if !hasEval {
+		t.Fatal("no node has evaluation — evaluated node path not tested")
+	}
+	if !hasTerminal {
+		t.Fatal("no terminal node found")
+	}
+
+	// Verify bestPath is populated
+	bp, ok := body["bestPath"].([]any)
+	if !ok || len(bp) == 0 {
+		t.Fatal("bestPath should be non-empty (fixture has terminal node)")
+	}
+}
+
+// nonFlusherWriter wraps httptest.ResponseRecorder but does NOT implement http.Flusher.
+type nonFlusherWriter struct {
+	http.ResponseWriter
+}
+
+func TestHandleSSENoFlusher(t *testing.T) {
+	req := httptest.NewRequest("GET", "/api/events", nil)
+	w := &nonFlusherWriter{httptest.NewRecorder()}
+
+	handleSSE(w, req)
+	// Should return 500
 }

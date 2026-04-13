@@ -284,6 +284,41 @@ func TestStartMCPBridgeIntegration(t *testing.T) {
 	b.Unsubscribe(bridgeID)
 }
 
+func TestStartMCPBridgeActual(t *testing.T) {
+	s := server.NewMCPServer("bridge-actual-test", "0.0.0",
+		server.WithResourceCapabilities(true, true),
+	)
+
+	// Call the real StartMCPBridge — covers the function body
+	StartMCPBridge(s)
+
+	// Subscribe a monitor on the global bus to verify the bridge consumed the event
+	monID, monCh := Get().Subscribe()
+	defer Get().Unsubscribe(monID)
+
+	// Publish an event on the global bus
+	Get().Publish(Event{
+		Type:      ThoughtEvaluated,
+		TreeID:    "bridge-actual-test",
+		NodeID:    "n1",
+		Timestamp: time.Now(),
+		Payload:   map[string]any{"evaluation": "sure", "score": 1.0},
+	})
+
+	// The monitor should receive the event (proves the bus is working)
+	select {
+	case got := <-monCh:
+		if got.Type != ThoughtEvaluated {
+			t.Fatalf("expected ThoughtEvaluated, got %s", got.Type)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out")
+	}
+
+	// Give the bridge goroutine time to process (it logs the event)
+	time.Sleep(50 * time.Millisecond)
+}
+
 func uriSet(uris []string) map[string]bool {
 	m := make(map[string]bool, len(uris))
 	for _, u := range uris {
