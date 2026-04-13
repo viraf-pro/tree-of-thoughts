@@ -14,6 +14,7 @@ import (
 	"github.com/tot-mcp/tot-mcp-go/internal/dashboard"
 	"github.com/tot-mcp/tot-mcp-go/internal/embeddings"
 	"github.com/tot-mcp/tot-mcp-go/internal/experiment"
+	"github.com/tot-mcp/tot-mcp-go/internal/resources"
 	"github.com/tot-mcp/tot-mcp-go/internal/retrieval"
 	"github.com/tot-mcp/tot-mcp-go/internal/tree"
 	"github.com/tot-mcp/tot-mcp-go/internal/web"
@@ -57,12 +58,16 @@ func main() {
 		}
 	}
 
-	s := server.NewMCPServer("tot-mcp-server", version, server.WithToolCapabilities(false))
+	s := server.NewMCPServer("tot-mcp-server", version,
+		server.WithToolCapabilities(false),
+		server.WithResourceCapabilities(true, true),
+	)
 
 	registerTreeTools(s)
 	registerRetrievalTools(s)
 	registerExperimentTools(s)
 	registerKnowledgeTools(s)
+	resources.Register(s)
 
 	// dashboard tool
 	s.AddTool(mcp.NewTool("open_dashboard",
