@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -370,6 +371,57 @@ func TestAllHookScriptsHaveShebang(t *testing.T) {
 			t.Errorf("%s: missing shebang line", path)
 		}
 	}
+}
+
+func TestHookScriptsAreSyntacticallyValid(t *testing.T) {
+	scripts, _ := filepath.Glob("scripts/*.sh")
+	for _, path := range scripts {
+		content, _ := os.ReadFile(path)
+		text := string(content)
+		name := filepath.Base(path)
+
+		// Must use set -e or set -euo pipefail
+		if !strings.Contains(text, "set -e") {
+			t.Errorf("%s: missing 'set -e' for fail-fast behavior", name)
+		}
+
+		// Must reference CLAUDE_PLUGIN_DATA or CLAUDE_PLUGIN_ROOT
+		if !strings.Contains(text, "CLAUDE_PLUGIN_DATA") && !strings.Contains(text, "CLAUDE_PLUGIN_ROOT") {
+			t.Errorf("%s: should reference CLAUDE_PLUGIN_DATA or CLAUDE_PLUGIN_ROOT", name)
+		}
+
+		// Must be fail-safe (exit 0 on errors for non-blocking hooks)
+		if strings.Contains(text, "exit 1") && !strings.Contains(text, "install") {
+			// install.sh is allowed to exit 1 (fatal if no binary)
+			t.Errorf("%s: hook scripts should exit 0 on errors (non-blocking)", name)
+		}
+
+		// Scripts that parse tool_input from stdin should read it
+		// (Not all PostToolUse hooks need stdin — some just run independent checks)
+		if strings.Contains(text, "tool_input") {
+			if !strings.Contains(text, "cat") && !strings.Contains(text, "INPUT") {
+				t.Errorf("%s: scripts parsing tool_input should read JSON from stdin", name)
+			}
+		}
+	}
+}
+
+func TestHookScriptsBashSyntax(t *testing.T) {
+	scripts, _ := filepath.Glob("scripts/*.sh")
+	for _, path := range scripts {
+		// Check bash syntax with bash -n (parse only, don't execute)
+		cmd := "bash -n " + path
+		output, err := runCmd(cmd)
+		if err != nil {
+			t.Errorf("%s: bash syntax error: %s %v", filepath.Base(path), output, err)
+		}
+	}
+}
+
+func runCmd(command string) (string, error) {
+	parts := strings.Fields(command)
+	out, err := exec.Command(parts[0], parts[1:]...).CombinedOutput()
+	return string(out), err
 }
 
 func TestBinWrapperExecutable(t *testing.T) {

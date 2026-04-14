@@ -6,6 +6,7 @@ import (
 
 	"github.com/tot-mcp/tot-mcp-go/internal/db"
 	"github.com/tot-mcp/tot-mcp-go/internal/events"
+	"github.com/tot-mcp/tot-mcp-go/internal/experiment"
 	"github.com/tot-mcp/tot-mcp-go/internal/retrieval"
 	"github.com/tot-mcp/tot-mcp-go/internal/tree"
 )
@@ -434,6 +435,72 @@ func TestVerifySensorKnowledge(t *testing.T) {
 }
 
 // =============================================================================
+// Verification Sensor: verify-experiment
+// Tests the computational checks from the verify-experiment skill
+// =============================================================================
+
+func TestVerifySensorExperiment(t *testing.T) {
+	// Create a tree with experiment results to verify against
+	tr, root, _ := tree.CreateTree("verify-experiment sensor test", "beam", 5, 3)
+	n1, _ := tree.AddThought(tr.ID, root.ID, "experiment hypothesis", nil)
+
+	// Insert experiment results directly (no actual experiment runner needed)
+	d := db.Get()
+	d.Exec(`INSERT INTO experiment_results (tree_id, node_id, status, metric, memory_mb, duration_seconds, commit_hash, kept, created_at)
+		VALUES (?, ?, 'improved', 0.85, 64.2, 8.5, 'abc1234', 1, '2026-01-01T00:00:00Z')`, tr.ID, n1.ID)
+	d.Exec(`INSERT INTO experiment_results (tree_id, node_id, status, metric, memory_mb, duration_seconds, commit_hash, kept, created_at)
+		VALUES (?, ?, 'regressed', 0.92, 55.1, 7.2, 'def5678', 0, '2026-01-02T00:00:00Z')`, tr.ID, n1.ID)
+	d.Exec(`INSERT INTO experiment_results (tree_id, node_id, status, metric, memory_mb, duration_seconds, commit_hash, kept, created_at)
+		VALUES (?, ?, 'crashed', NULL, NULL, 2.1, NULL, 0, '2026-01-03T00:00:00Z')`, tr.ID, n1.ID)
+
+	// Check 1: experiment count via History()
+	history := experiment.History(tr.ID)
+	if history == nil {
+		t.Fatal("experiment history returned nil")
+	}
+
+	total := toInt(history["totalExperiments"])
+	improved := toInt(history["improved"])
+	crashed := toInt(history["crashed"])
+
+	if total < 3 {
+		t.Fatalf("expected at least 3 total experiments, got %d", total)
+	}
+
+	// Check 2: at least one improved and one crashed
+	if improved < 1 {
+		t.Errorf("expected at least 1 improved experiment, got %d", improved)
+	}
+	if crashed < 1 {
+		t.Errorf("expected at least 1 crashed experiment, got %d", crashed)
+	}
+
+	// Check 3: success rate
+	successRate := toInt(history["successRate"])
+	// 1 improved out of 3 = 33%
+	if successRate < 1 {
+		t.Errorf("expected positive success rate, got %d%%", successRate)
+	}
+
+	// Check 4: verify experiment results exist in DB via direct query
+	var dbCount int
+	d.QueryRow(`SELECT COUNT(*) FROM experiment_results WHERE tree_id=?`, tr.ID).Scan(&dbCount)
+	if dbCount != total {
+		t.Errorf("DB has %d results but History reports %d", dbCount, total)
+	}
+
+	// Check 5: verify metrics are present for non-crashed experiments
+	var withMetrics int
+	d.QueryRow(`SELECT COUNT(*) FROM experiment_results WHERE tree_id=? AND metric IS NOT NULL`, tr.ID).Scan(&withMetrics)
+	if withMetrics < 2 {
+		t.Errorf("expected at least 2 experiments with metrics, got %d", withMetrics)
+	}
+
+	t.Logf("verify-experiment: total=%d improved=%d crashed=%d rate=%d%% metrics=%d/%d",
+		total, improved, crashed, successRate, withMetrics, total)
+}
+
+// =============================================================================
 // Cross-tree linking workflow
 // =============================================================================
 
@@ -654,6 +721,17 @@ func TestWorkflowFullTreeLifecycle(t *testing.T) {
 	stats := summary["stats"].(map[string]int)
 	t.Logf("lifecycle complete: %d nodes, %d pruned, %d terminal, depth %d",
 		stats["totalNodes"], stats["prunedNodes"], stats["terminalNodes"], stats["maxDepthReached"])
+}
+
+func toInt(v any) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case float64:
+		return int(n)
+	default:
+		return 0
+	}
 }
 
 // drainUntil reads events until the expected type is found. Helper for workflow tests.
