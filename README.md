@@ -82,19 +82,27 @@ The binary starts two things: an MCP server on stdio (for Claude Desktop / Claud
 
 ## Install from releases
 
-```bash
-# Linux x86_64
-curl -L https://github.com/viraf-pro/tree-of-thoughts/releases/latest/download/tot-mcp-linux-amd64.tar.gz | tar xz
-chmod +x tot-mcp
+Download prebuilt binaries from [GitHub Releases](https://github.com/viraf-pro/tree-of-thoughts/releases):
 
+```bash
 # macOS Apple Silicon
 curl -L https://github.com/viraf-pro/tree-of-thoughts/releases/latest/download/tot-mcp-darwin-arm64.tar.gz | tar xz
-chmod +x tot-mcp
+
+# macOS Intel
+curl -L https://github.com/viraf-pro/tree-of-thoughts/releases/latest/download/tot-mcp-darwin-amd64.tar.gz | tar xz
+
+# Linux x86_64
+curl -L https://github.com/viraf-pro/tree-of-thoughts/releases/latest/download/tot-mcp-linux-amd64.tar.gz | tar xz
+
+# Linux ARM64
+curl -L https://github.com/viraf-pro/tree-of-thoughts/releases/latest/download/tot-mcp-linux-arm64.tar.gz | tar xz
 
 # Windows (PowerShell)
 Invoke-WebRequest https://github.com/viraf-pro/tree-of-thoughts/releases/latest/download/tot-mcp-windows-amd64.zip -OutFile tot-mcp.zip
 Expand-Archive tot-mcp.zip -DestinationPath .
 ```
+
+Optionally move to your PATH: `mv tot-mcp /usr/local/bin/`
 
 ## Cross-compile all platforms
 
@@ -169,22 +177,42 @@ Optionally, for faster embeddings via OpenAI:
 
 ## Connect to Claude Code
 
-**Option A: MCP server only**
+**Quick install (recommended):**
 
 ```bash
-claude mcp add tree-of-thoughts /absolute/path/to/tot-mcp
+# macOS Apple Silicon
+curl -L https://github.com/viraf-pro/tree-of-thoughts/releases/latest/download/tot-mcp-darwin-arm64.tar.gz | tar xz
+claude mcp add tree-of-thoughts -- ./tot-mcp
+
+# macOS Intel
+curl -L https://github.com/viraf-pro/tree-of-thoughts/releases/latest/download/tot-mcp-darwin-amd64.tar.gz | tar xz
+claude mcp add tree-of-thoughts -- ./tot-mcp
+
+# Linux x86_64
+curl -L https://github.com/viraf-pro/tree-of-thoughts/releases/latest/download/tot-mcp-linux-amd64.tar.gz | tar xz
+claude mcp add tree-of-thoughts -- ./tot-mcp
+
+# Linux ARM64
+curl -L https://github.com/viraf-pro/tree-of-thoughts/releases/latest/download/tot-mcp-linux-arm64.tar.gz | tar xz
+claude mcp add tree-of-thoughts -- ./tot-mcp
 ```
 
-**Option B: Full plugin (recommended)**
-
-Install as a Claude Code plugin for skills, agents, and hooks:
+To move the binary somewhere permanent:
 
 ```bash
-# Local testing
-claude --plugin-dir /path/to/tree-of-thoughts
+mv tot-mcp /usr/local/bin/
+claude mcp add tree-of-thoughts -- tot-mcp
+```
 
-# Or from marketplace (when published)
-# claude plugin install tree-of-thoughts
+To verify it's connected: `claude mcp list`
+
+**Full plugin install (skills, agents, and hooks):**
+
+For the richest experience with 21 skills, 7 agents, and harness engineering hooks:
+
+```bash
+git clone https://github.com/viraf-pro/tree-of-thoughts.git
+claude --plugin-dir /path/to/tree-of-thoughts
 ```
 
 The plugin includes:
