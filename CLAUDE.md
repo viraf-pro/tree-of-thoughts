@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-tot-mcp is a Tree of Thoughts (ToT) MCP server written in Go. It provides structured multi-path reasoning, persistent storage (SQLite), hybrid retrieval (vector + FTS5), autonomous experiment execution, and a live web dashboard. Single binary, pure Go, zero CGO.
+tot-mcp is a Tree of Thoughts (ToT) MCP server written in Go. It provides structured multi-path reasoning, persistent storage (SQLite), hybrid retrieval (vector + FTS5), real-time subscriptions, autonomous experiment execution, a live web dashboard, and a Claude Code plugin with 21 skills, 7 agents, and harness engineering hooks. Single binary, pure Go, zero CGO.
 
 ## Build & Run
 
@@ -16,11 +16,11 @@ go build -o tot-mcp .         # Direct build
 go vet ./...                  # Lint/check
 ```
 
-There are no tests in this codebase currently. No package.json — this is a pure Go project (go 1.23).
+215 tests across 10 packages (`go test ./...`). No package.json — this is a pure Go project (go 1.24).
 
 **Running:**
 - `./tot-mcp` — MCP stdio server + HTTP dashboard (port 4545)
-- `./tot-mcp <command>` — CLI mode (list, suggest, show, route, create, ready, audit, stats, compact, help)
+- `./tot-mcp <command>` — CLI mode (21 commands: list, suggest, show, route, create, add, eval, solve, ready, audit, stats, compact, lint, health, drift, report, export, ingest, version, help)
 
 ## Architecture
 

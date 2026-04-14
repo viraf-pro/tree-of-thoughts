@@ -1,6 +1,6 @@
 # Tree of Thoughts MCP
 
-A single-binary MCP server for tree-structured reasoning with persistent storage, hybrid retrieval, a compounding knowledge graph, web research ingestion, real-time subscriptions, an autonomous experiment runner, and a live web dashboard.
+A single-binary MCP server for tree-structured reasoning with persistent storage, hybrid retrieval, a compounding knowledge graph, web research ingestion, real-time subscriptions, an autonomous experiment runner, a live web dashboard, and a Claude Code plugin with 21 skills, 7 agents, and harness engineering hooks.
 
 Built on the [Tree of Thoughts](https://arxiv.org/abs/2305.10601) framework (Yao et al., 2023). The server gives LLMs structured exploration over multiple reasoning paths with evaluation, backtracking, and search algorithms, instead of linear chain-of-thought.
 
@@ -52,7 +52,16 @@ Everything the AI figures out gets saved in a **compounding knowledge graph**. S
 
 **Real-time subscriptions.** An internal event bus publishes typed events for every mutation (thought added, evaluated, pruned, solution stored, experiment completed, etc.). Three consumers tap in: MCP clients receive `notifications/resources/updated` for subscribed resource URIs, the web dashboard gets instant SSE updates, and all events are logged. Clients can subscribe to 7 resource URI patterns (`tot://tree/{id}`, `tot://tree/{id}/frontier`, `tot://solutions`, etc.) and get notified the moment something changes.
 
-**Live dashboard.** A web UI at `localhost:4545` renders an interactive D3 radial tree with click-to-explore path analysis, experiment history, metric charts, and a full-text solution store. Updates in real-time via Server-Sent Events (SSE), with polling fallback.
+**Live dashboard.** A web UI at `localhost:4545` renders an interactive D3 radial tree with click-to-explore path analysis, experiment history, metric charts, and a full-text solution store. Updates in real-time via Server-Sent Events (SSE), with polling fallback. Create new trees directly from the dashboard via the "+ New Tree" button.
+
+**Claude Code plugin.** Install as a Claude Code plugin for the richest experience. Ships 21 skills (create-tree, deep-research, decide, run-experiment, knowledge-health, etc.), 7 specialized agents (researcher, experimenter, librarian, critic, synthesizer, conductor, scout), and harness engineering hooks. The plugin auto-downloads the binary on first use.
+
+**Agent workflows.** Multi-agent pipelines with explicit handoff and feedback loops, based on [Harness Engineering](https://martinfowler.com/articles/harness-engineering.html):
+- `research-and-validate` — scout → researcher → critic → [revision loop] → librarian
+- `experiment-loop` — scout → researcher (hypothesize) → experimenter (test) → researcher (interpret) → librarian
+- `knowledge-maintenance` — librarian (detect) → synthesizer (consolidate) → critic (validate) → librarian (apply)
+
+**Harness engineering hooks.** Feedforward guides steer agents before they act (session briefing, duplicate tree prevention, prior knowledge injection). Feedback sensors verify quality after mutations (research depth checks, orphan detection, experiment safety, session-end quality gate).
 
 ## Quick start
 
@@ -75,16 +84,16 @@ The binary starts two things: an MCP server on stdio (for Claude Desktop / Claud
 
 ```bash
 # Linux x86_64
-curl -L https://github.com/viraf-pro/tree-of-thoughts/releases/latest/download/tot-mcp-linux-amd64.gz | gunzip > tot-mcp
+curl -L https://github.com/viraf-pro/tree-of-thoughts/releases/latest/download/tot-mcp-linux-amd64.tar.gz | tar xz
 chmod +x tot-mcp
 
 # macOS Apple Silicon
-curl -L https://github.com/viraf-pro/tree-of-thoughts/releases/latest/download/tot-mcp-darwin-arm64.gz | gunzip > tot-mcp
+curl -L https://github.com/viraf-pro/tree-of-thoughts/releases/latest/download/tot-mcp-darwin-arm64.tar.gz | tar xz
 chmod +x tot-mcp
 
 # Windows (PowerShell)
-curl -L https://github.com/viraf-pro/tree-of-thoughts/releases/latest/download/tot-mcp-windows-amd64.exe.gz -o tot-mcp.exe.gz
-gzip -d tot-mcp.exe.gz
+Invoke-WebRequest https://github.com/viraf-pro/tree-of-thoughts/releases/latest/download/tot-mcp-windows-amd64.zip -OutFile tot-mcp.zip
+Expand-Archive tot-mcp.zip -DestinationPath .
 ```
 
 ## Cross-compile all platforms
@@ -110,6 +119,9 @@ The binary doubles as a lightweight CLI for scripting, CI pipelines, and agent s
 ./tot-mcp show <tree_id>                # Show tree summary and best path
 ./tot-mcp route "problem text"          # Check if problem matches existing tree
 ./tot-mcp create "problem text"         # Create a new tree (default: beam)
+./tot-mcp add <tree> <parent> <thought> # Add a thought to a tree node
+./tot-mcp eval <tree> <node> <eval>     # Evaluate: sure, maybe, or impossible
+./tot-mcp solve <tree> <node>           # Mark a node as the solution
 ./tot-mcp ready                         # Show active trees with frontier nodes
 ./tot-mcp audit [tree_id]               # View audit trail (last 20 entries)
 ./tot-mcp stats                         # Retrieval store statistics
@@ -157,9 +169,29 @@ Optionally, for faster embeddings via OpenAI:
 
 ## Connect to Claude Code
 
+**Option A: MCP server only**
+
 ```bash
 claude mcp add tree-of-thoughts /absolute/path/to/tot-mcp
 ```
+
+**Option B: Full plugin (recommended)**
+
+Install as a Claude Code plugin for skills, agents, and hooks:
+
+```bash
+# Local testing
+claude --plugin-dir /path/to/tree-of-thoughts
+
+# Or from marketplace (when published)
+# claude plugin install tree-of-thoughts
+```
+
+The plugin includes:
+- **21 skills** — `/tree-of-thoughts:create-tree`, `:deep-research`, `:decide`, `:run-experiment`, etc.
+- **7 agents** — researcher, experimenter, librarian, critic, synthesizer, conductor, scout
+- **7 hooks** — session briefing, duplicate prevention, research verification, knowledge lint
+- Auto-downloads the binary from GitHub releases on first use
 
 ## Connect to ChatGPT Desktop
 
@@ -468,7 +500,7 @@ The binary automatically starts an HTTP server at `http://127.0.0.1:4545`.
 
 **Experiment stats.** For trees with experiments: run count, success rate, best metric, and a metric progression chart. Hidden for reasoning-only trees, replaced with frontier/depth/active node stats.
 
-**Auto-refresh.** Polls every 10 seconds. Leave it open during an overnight autoresearch run and watch progress live.
+**Real-time updates.** Live updates via Server-Sent Events (SSE). The tree visualization redraws instantly when thoughts are added or evaluated. Falls back to 10-second polling if SSE is unavailable.
 
 Disable with `TOT_NO_DASHBOARD=1`. Change the port with `TOT_DASHBOARD_PORT=8080`.
 
@@ -476,41 +508,24 @@ Disable with `TOT_NO_DASHBOARD=1`. Change the port with `TOT_DASHBOARD_PORT=8080
 
 ```
 tot-mcp/
-  main.go                 Entry point. 39 tool registrations. Dashboard startup. CLI dispatch.
-  cli.go                  Lightweight CLI with 16 commands for scripting and CI sensors.
+  main.go                 Entry point. 39 tools, 7 resources. Dashboard + event bus startup.
+  cli.go                  21 CLI commands for scripting and CI sensors.
   internal/
-    db/
-      db.go               SQLite init, schema migration, WAL mode. Pure Go (modernc.org/sqlite).
-      audit.go            Audit trail logging and retrieval.
-    tree/
-      tree.go             Tree CRUD. BFS/DFS/Beam search. Frontier management. Recursive CTE for
-                           path extraction and subtree pruning. Routing with hybrid embedding +
-                           keyword scoring. Deep research (get_frontier, get_all_paths).
-                           Progressive-disclosure context (GetTreeContext).
-    retrieval/
-      retrieval.go        Hybrid search: cosine similarity (pure Go) + FTS5 keyword matching.
-                           Solution storage with embeddings and design rationale.
-                           Knowledge graph: solution cross-references with confidence labels,
-                           graph topology analysis (god nodes, communities, bridges).
-                           Knowledge report, lint, drift scan, compaction.
-                           Obsidian vault export. Token-budgeted retrieval.
-    web/
-      fetch.go            Secure URL fetching: HTTP/HTTPS validation, size cap, redirect
-                           validation, HTML-to-text extraction, title extraction.
-    embeddings/
-      embeddings.go       Pluggable providers: local (Hugot ONNX), OpenAI, Voyage AI, Ollama,
-                           noop fallback. Thread-safe via sync.Once. Pure Go cosine similarity.
-    encoding/
-      encoding.go         Shared float32-to-bytes encoding for embedding BLOBs.
-    experiment/
-      experiment.go       Git management (branch, commit, reset). Shell command execution with
-                           timeout. Metric parsing via regex. Auto-evaluation. Path traversal
-                           protection on target files.
-    dashboard/
-      server.go           HTTP API: /api/trees, /api/tree/:id, /api/experiments/:id,
-                           /api/retrieval/:id. JSON responses from SQLite.
-      html.go             Embedded SPA. D3 radial tree with click-to-explore path panel.
-                           Chart.js experiment metrics. Reasoning paths. Solution store.
+    db/                   SQLite init, schema, WAL mode, audit logging. Pure Go.
+    tree/                 Tree CRUD, BFS/DFS/Beam search, frontier, routing, cross-tree links.
+    retrieval/            Hybrid search (vector + FTS5), knowledge graph, lint, drift, compaction.
+    events/               Event bus (pub/sub), MCP notification bridge, 15 event types.
+    resources/            7 MCP resource templates (tot://tree/{id}, tot://solutions, etc.).
+    experiment/           Git-based experiment runner with metric parsing and auto-evaluation.
+    dashboard/            HTTP API + embedded SPA with SSE real-time updates.
+    embeddings/           Pluggable providers: local ONNX, OpenAI, Voyage, Ollama.
+    web/                  Secure URL fetching with HTML-to-text extraction.
+    encoding/             Shared float32-to-bytes encoding for embedding BLOBs.
+  skills/                 21 Claude Code skills (create-tree, deep-research, decide, etc.).
+  agents/                 7 specialized agents (researcher, critic, conductor, etc.).
+  hooks/                  Harness engineering hooks (session briefing, verification, etc.).
+  scripts/                8 hook scripts (install, briefing, verification, lint, safety).
+  .claude-plugin/         Plugin manifest for Claude Code distribution.
 ```
 
 ### Database schema
@@ -562,7 +577,7 @@ This project incorporates ideas from three sources:
 
 - **[Karpathy's LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f)** — Persistent compounding knowledge artifacts. Solutions cross-reference each other, knowledge is compiled once and kept current, lint operations detect contradictions and gaps. The knowledge graph is a persistent artifact that compounds, not a flat database that merely accumulates.
 
-- **[Harness Engineering](https://martinfowler.com/articles/harness-engineering.html) ([Fowler](https://martinfowler.com/articles/harness-engineering.html), [OpenAI](https://openai.com/index/harness-engineering/))** — Feedforward guides (progressive disclosure, remediation instructions) and computational feedback sensors (CLI lint/drift/health for CI pipelines). Structural self-enforcement tests. The "map not manual" pattern for agent instructions.
+- **[Harness Engineering](https://martinfowler.com/articles/harness-engineering.html) ([Fowler](https://martinfowler.com/articles/harness-engineering.html), [OpenAI](https://openai.com/index/harness-engineering/))** — Feedforward guides (skills, session briefing, duplicate prevention) and computational feedback sensors (verify-research, verify-experiment, verify-knowledge, session quality gate). Multi-agent workflows with the conductor agent orchestrating feedback loops. Hook-based control system with context baton handoff between agents.
 
 - **[Graphify](https://graphify.net/)** — Graph topology analysis (god nodes, communities, bridge edges), confidence-scored relationships, token-budgeted retrieval, design rationale capture, multi-format export (Obsidian vault).
 
@@ -572,7 +587,7 @@ This project incorporates ideas from three sources:
 # Build
 go build -o tot-mcp .
 
-# Run tests (183 tests across 10 packages)
+# Run tests (215 tests across 10 packages)
 go test ./...
 
 # Type check
@@ -582,7 +597,9 @@ go vet ./...
 make all
 ```
 
-The project uses no CGO. `go build` produces a static binary on any platform with Go 1.23+.
+The project uses no CGO. `go build` produces a static binary on any platform with Go 1.24+.
+
+Releases are automated via GoReleaser — push a `v*` tag to run tests and build cross-platform binaries.
 
 ## License
 
