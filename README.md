@@ -206,20 +206,30 @@ claude mcp add tree-of-thoughts -- tot-mcp
 
 To verify it's connected: `claude mcp list`
 
-**Full plugin install (skills, agents, and hooks):**
+**Plugin marketplace (skills, agents, and hooks):**
 
-For the richest experience with 21 skills, 7 agents, and harness engineering hooks:
+Install via the Claude Code plugin marketplace for the full experience:
+
+```bash
+# Add the marketplace
+/plugin marketplace add viraf-pro/tree-of-thoughts
+
+# Install the plugin
+/plugin install tree-of-thoughts@tree-of-thoughts
+```
+
+Or install locally for development:
 
 ```bash
 git clone https://github.com/viraf-pro/tree-of-thoughts.git
 claude --plugin-dir /path/to/tree-of-thoughts
 ```
 
-The plugin includes:
+The plugin auto-downloads the binary on first use and includes:
+- **39 tools** — tree reasoning, deep research, knowledge graph, experiment runner
 - **21 skills** — `/tree-of-thoughts:create-tree`, `:deep-research`, `:decide`, `:run-experiment`, etc.
 - **7 agents** — researcher, experimenter, librarian, critic, synthesizer, conductor, scout
 - **7 hooks** — session briefing, duplicate prevention, research verification, knowledge lint
-- Auto-downloads the binary from GitHub releases on first use
 
 ## Connect to ChatGPT Desktop
 

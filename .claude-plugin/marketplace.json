@@ -1,0 +1,34 @@
+{
+  "name": "tree-of-thoughts",
+  "owner": {
+    "name": "viraf-pro",
+    "url": "https://github.com/viraf-pro"
+  },
+  "plugins": [
+    {
+      "name": "tree-of-thoughts",
+      "source": {
+        "source": "github",
+        "repo": "viraf-pro/tree-of-thoughts"
+      },
+      "description": "Tree of Thoughts MCP server — structured multi-path reasoning with 39 tools, 21 skills, 7 agents, persistent knowledge graph, experiment runner, and live dashboard. Single binary, zero config.",
+      "version": "0.4.2",
+      "author": {
+        "name": "viraf-pro"
+      },
+      "homepage": "https://github.com/viraf-pro/tree-of-thoughts",
+      "repository": "https://github.com/viraf-pro/tree-of-thoughts",
+      "license": "MIT",
+      "keywords": [
+        "tree-of-thoughts",
+        "reasoning",
+        "mcp",
+        "knowledge-graph",
+        "deep-research",
+        "experiments",
+        "agents",
+        "dashboard"
+      ]
+    }
+  ]
+}
