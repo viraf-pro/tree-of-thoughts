@@ -296,21 +296,79 @@ func TestHooksConfigValid(t *testing.T) {
 	}
 	text := string(content)
 
-	if !strings.Contains(text, "SessionStart") {
-		t.Error("hooks.json should have SessionStart hook for install")
+	// Check all hook events are present
+	requiredEvents := []string{"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"}
+	for _, event := range requiredEvents {
+		if !strings.Contains(text, event) {
+			t.Errorf("hooks.json missing event %s", event)
+		}
 	}
-	if !strings.Contains(text, "install.sh") {
-		t.Error("hooks.json should reference install.sh")
+
+	// Check all scripts are referenced
+	requiredScripts := []string{
+		"install.sh",
+		"session-briefing.sh",
+		"prior-knowledge-check.sh",
+		"check-duplicate-tree.sh",
+		"check-experiment-safety.sh",
+		"verify-after-solution.sh",
+		"lint-after-store.sh",
+		"session-quality-gate.sh",
+	}
+	for _, script := range requiredScripts {
+		if !strings.Contains(text, script) {
+			t.Errorf("hooks.json missing reference to %s", script)
+		}
+	}
+
+	// Check tool matchers
+	requiredMatchers := []string{"create_tree", "execute_experiment", "mark_solution", "store_solution|ingest_url"}
+	for _, matcher := range requiredMatchers {
+		if !strings.Contains(text, matcher) {
+			t.Errorf("hooks.json missing matcher %q", matcher)
+		}
+	}
+
+	// Check all paths use CLAUDE_PLUGIN_ROOT
+	if strings.Count(text, "CLAUDE_PLUGIN_ROOT") < len(requiredScripts) {
+		t.Error("some hook commands may not use ${CLAUDE_PLUGIN_ROOT} prefix")
 	}
 }
 
-func TestInstallScriptExecutable(t *testing.T) {
-	info, err := os.Stat("scripts/install.sh")
-	if err != nil {
-		t.Fatalf("stat install.sh: %v", err)
+func TestAllHookScriptsExecutable(t *testing.T) {
+	scripts := []string{
+		"scripts/install.sh",
+		"scripts/session-briefing.sh",
+		"scripts/prior-knowledge-check.sh",
+		"scripts/check-duplicate-tree.sh",
+		"scripts/check-experiment-safety.sh",
+		"scripts/verify-after-solution.sh",
+		"scripts/lint-after-store.sh",
+		"scripts/session-quality-gate.sh",
 	}
-	if info.Mode()&0111 == 0 {
-		t.Error("scripts/install.sh is not executable")
+	for _, path := range scripts {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Errorf("%s: not found", path)
+			continue
+		}
+		if info.Mode()&0111 == 0 {
+			t.Errorf("%s: not executable", path)
+		}
+	}
+}
+
+func TestAllHookScriptsHaveShebang(t *testing.T) {
+	scripts, _ := filepath.Glob("scripts/*.sh")
+	for _, path := range scripts {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			t.Errorf("read %s: %v", path, err)
+			continue
+		}
+		if !strings.HasPrefix(string(content), "#!/") {
+			t.Errorf("%s: missing shebang line", path)
+		}
 	}
 }
 
