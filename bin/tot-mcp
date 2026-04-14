@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Wrapper that delegates to the installed binary in CLAUDE_PLUGIN_DATA.
+# This makes `tot-mcp` available as a bare command in the Bash tool.
+exec "${CLAUDE_PLUGIN_DATA}/bin/tot-mcp" "$@"

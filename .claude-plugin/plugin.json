@@ -1,0 +1,20 @@
+{
+  "name": "tree-of-thoughts",
+  "version": "0.3.0",
+  "description": "Tree of Thoughts MCP server — structured multi-path reasoning with persistent storage, hybrid retrieval, knowledge graph, experiment runner, and live dashboard",
+  "author": {
+    "name": "viraf-pro"
+  },
+  "homepage": "https://github.com/viraf-pro/tree-of-thoughts",
+  "repository": "https://github.com/viraf-pro/tree-of-thoughts",
+  "license": "MIT",
+  "keywords": [
+    "tree-of-thoughts",
+    "reasoning",
+    "mcp",
+    "knowledge-graph",
+    "retrieval",
+    "experiments",
+    "dashboard"
+  ]
+}

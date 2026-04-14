@@ -1,6 +1,7 @@
 # Binaries
-tot-mcp
+/tot-mcp
 tot-mcp-*
+!bin/tot-mcp
 *.exe
 *.dll
 *.so
