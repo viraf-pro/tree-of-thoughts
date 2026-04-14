@@ -19,6 +19,8 @@ import (
 	"github.com/tot-mcp/tot-mcp-go/internal/tree"
 )
 
+var fixtureTreeID string
+
 func TestMain(m *testing.M) {
 	tmp := filepath.Join(os.TempDir(), "tot-mcp-dashboard-test.db")
 	os.Remove(tmp)
@@ -26,7 +28,9 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	// Create rich fixture data for coverage
+	// This tree is used by tests that need experiments, solutions, and nodes.
 	t1, root, _ := tree.CreateTree("dashboard test problem", "bfs", 5, 3)
+	fixtureTreeID = t1.ID
 
 	// Add thoughts with evaluations (covers handleTreeDetail node iteration + findBestPath)
 	n1, _ := tree.AddThought(t1.ID, root.ID, "first approach", nil)
@@ -513,9 +517,8 @@ func TestFindBestPathNoTree(t *testing.T) {
 }
 
 func TestHandleExperimentsWithData(t *testing.T) {
-	// Fixture has experiment results — verify the inner loop runs
-	trees, _ := tree.ListTrees()
-	treeID := trees[0].ID
+	// Use the fixture tree which has experiment results
+	treeID := fixtureTreeID
 
 	req := httptest.NewRequest("GET", "/api/experiments/"+treeID, nil)
 	w := httptest.NewRecorder()
@@ -566,8 +569,7 @@ func TestHandleExperimentsWithData(t *testing.T) {
 }
 
 func TestHandleRetrievalWithSolutions(t *testing.T) {
-	trees, _ := tree.ListTrees()
-	treeID := trees[0].ID
+	treeID := fixtureTreeID
 
 	req := httptest.NewRequest("GET", "/api/retrieval/"+treeID, nil)
 	w := httptest.NewRecorder()
@@ -615,9 +617,8 @@ func TestHandleRetrievalNoTreeFilter(t *testing.T) {
 }
 
 func TestHandleTreeDetailWithNodes(t *testing.T) {
-	// Verify the node iteration covers parentId and evaluation branches
-	trees, _ := tree.ListTrees()
-	treeID := trees[0].ID
+	// Use fixture tree which has evaluated nodes, terminal nodes, etc.
+	treeID := fixtureTreeID
 
 	req := httptest.NewRequest("GET", "/api/tree/"+treeID, nil)
 	w := httptest.NewRecorder()
