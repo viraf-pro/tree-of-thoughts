@@ -209,6 +209,25 @@ func truncateResults(results []Result, maxTokens int) []Result {
 	return out
 }
 
+// vectorSearchCap returns the maximum number of embeddings to load into memory,
+// scaled by dimension to keep memory usage bounded at ~2MB.
+// 384-dim × 4 bytes × 1300 ≈ 2MB, 1536-dim × 4 × 325 ≈ 2MB, etc.
+func vectorSearchCap(dims int) int {
+	if dims <= 0 {
+		return 1000
+	}
+	const memoryBudgetBytes = 2 * 1024 * 1024 // 2MB
+	bytesPerVector := dims * 4                 // float32
+	cap := memoryBudgetBytes / bytesPerVector
+	if cap < 100 {
+		cap = 100 // floor: always scan at least 100
+	}
+	if cap > 1300 {
+		cap = 1300 // ceiling: no benefit scanning more
+	}
+	return cap
+}
+
 func vectorSearch(query string, limit int) ([]Result, error) {
 	queryVec, err := embeddings.Get().Embed(query)
 	if err != nil || len(queryVec) == 0 {
@@ -217,8 +236,9 @@ func vectorSearch(query string, limit int) ([]Result, error) {
 
 	d := db.Get()
 	// Pure Go cosine similarity requires loading embeddings into memory.
-	// Cap at 1000 most recent to bound memory usage (~1.5MB at 384-dim).
-	rows, err := d.Query(`SELECT id,problem,solution,thoughts,score,tags,embedding FROM solutions WHERE embedding IS NOT NULL ORDER BY created_at DESC LIMIT 1000`)
+	// Cap dynamically by dimension to keep memory bounded at ~2MB.
+	cap := vectorSearchCap(embeddings.Get().Dimensions())
+	rows, err := d.Query(`SELECT id,problem,solution,thoughts,score,tags,embedding FROM solutions WHERE embedding IS NOT NULL ORDER BY created_at DESC LIMIT ?`, cap)
 	if err != nil {
 		return nil, err
 	}

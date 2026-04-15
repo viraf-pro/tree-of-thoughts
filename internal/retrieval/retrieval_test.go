@@ -863,3 +863,24 @@ func TestGetKnowledgeLog(t *testing.T) {
 		}
 	}
 }
+
+func TestVectorSearchCap(t *testing.T) {
+	// vectorSearchCap should return a smaller limit for higher-dim providers
+	// to keep memory bounded at ~2MB
+	cap384 := vectorSearchCap(384)
+	cap1536 := vectorSearchCap(1536)
+	cap3072 := vectorSearchCap(3072)
+
+	if cap384 < 1000 {
+		t.Fatalf("384-dim cap should be >= 1000, got %d", cap384)
+	}
+	if cap1536 >= cap384 {
+		t.Fatalf("1536-dim cap (%d) should be less than 384-dim cap (%d)", cap1536, cap384)
+	}
+	if cap3072 >= cap1536 {
+		t.Fatalf("3072-dim cap (%d) should be less than 1536-dim cap (%d)", cap3072, cap1536)
+	}
+	if cap3072 < 100 {
+		t.Fatalf("3072-dim cap should be at least 100, got %d", cap3072)
+	}
+}
