@@ -1,6 +1,6 @@
 {
   "name": "tree-of-thoughts",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "description": "Tree of Thoughts MCP server — structured multi-path reasoning with persistent storage, hybrid retrieval, knowledge graph, experiment runner, and live dashboard",
   "author": {
     "name": "viraf-pro"
@@ -20,7 +20,7 @@
   "mcpServers": {
     "tree-of-thoughts": {
       "type": "stdio",
-      "command": "${CLAUDE_PLUGIN_DATA}/bin/tot-mcp",
+      "command": "${CLAUDE_PLUGIN_ROOT}/scripts/launch.sh",
       "env": {
         "TOT_DB_PATH": "${CLAUDE_PLUGIN_DATA}/tot.db",
         "TOT_DASHBOARD_PORT": "4545"
