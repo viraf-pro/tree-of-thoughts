@@ -312,8 +312,7 @@ func handleSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
 	bus := events.Get()
-	id, ch := bus.Subscribe()
-	defer bus.Unsubscribe(id)
+	ch := bus.SubscribeCtx(r.Context())
 
 	// Send initial keepalive
 	fmt.Fprintf(w, ": connected\n\n")

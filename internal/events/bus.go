@@ -1,6 +1,7 @@
 package events
 
 import (
+	"context"
 	"log"
 	"sync"
 )
@@ -46,6 +47,19 @@ func (b *Bus) Unsubscribe(id int) {
 		delete(b.subs, id)
 		close(ch)
 	}
+}
+
+// SubscribeCtx returns a channel that auto-unsubscribes when ctx is canceled.
+// Use this instead of Subscribe when the subscriber's lifetime is tied to a
+// context (e.g., an HTTP request, a session). Prevents leaked channels if the
+// subscriber crashes or disconnects without calling Unsubscribe.
+func (b *Bus) SubscribeCtx(ctx context.Context) <-chan Event {
+	id, ch := b.Subscribe()
+	go func() {
+		<-ctx.Done()
+		b.Unsubscribe(id)
+	}()
+	return ch
 }
 
 // Publish fans out an event to all subscribers.
