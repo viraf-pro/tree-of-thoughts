@@ -83,6 +83,105 @@ func TestCliHealthRuns(t *testing.T) {
 	}
 }
 
+func TestCliListRuns(t *testing.T) {
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	cliList()
+
+	w.Close()
+	os.Stdout = old
+
+	buf := make([]byte, 4096)
+	n, _ := r.Read(buf)
+	output := string(buf[:n])
+
+	// On an empty DB it prints "No trees found.", otherwise tree rows
+	if output == "" {
+		t.Fatal("cliList produced no output")
+	}
+	if !strings.Contains(output, "trees") && !strings.Contains(output, "No trees found") && !strings.Contains(output, "nodes") {
+		t.Fatalf("unexpected cliList output: %s", output)
+	}
+}
+
+func TestCliStatsRuns(t *testing.T) {
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	cliStats()
+
+	w.Close()
+	os.Stdout = old
+
+	buf := make([]byte, 4096)
+	n, _ := r.Read(buf)
+	output := string(buf[:n])
+
+	if !strings.Contains(output, "totalSolutions") {
+		t.Fatalf("expected totalSolutions in output, got: %s", output)
+	}
+}
+
+func TestCliReportRuns(t *testing.T) {
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	cliReport()
+
+	w.Close()
+	os.Stdout = old
+
+	buf := make([]byte, 8192)
+	n, _ := r.Read(buf)
+	output := string(buf[:n])
+
+	if !strings.Contains(output, "topSolutions") {
+		t.Fatalf("expected topSolutions in output, got: %s", output)
+	}
+}
+
+func TestCliSuggestRuns(t *testing.T) {
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	cliSuggest()
+
+	w.Close()
+	os.Stdout = old
+
+	buf := make([]byte, 4096)
+	n, _ := r.Read(buf)
+	output := string(buf[:n])
+
+	if !strings.Contains(output, "action") {
+		t.Fatalf("expected action in output, got: %s", output)
+	}
+}
+
+func TestPrintHelpRuns(t *testing.T) {
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	printHelp()
+
+	w.Close()
+	os.Stdout = old
+
+	buf := make([]byte, 8192)
+	n, _ := r.Read(buf)
+	output := string(buf[:n])
+
+	if !strings.Contains(output, "USAGE") {
+		t.Fatalf("expected USAGE in output, got: %s", output)
+	}
+}
+
 func TestCliAddEvalSolve(t *testing.T) {
 	// Create a tree to operate on
 	old := os.Stdout

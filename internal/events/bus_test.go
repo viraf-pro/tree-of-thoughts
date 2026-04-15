@@ -1,6 +1,7 @@
 package events
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -200,5 +201,80 @@ func TestSubscriberIDs(t *testing.T) {
 	// IDs should be unique and sequential
 	if id1 == id2 || id2 == id3 || id1 == id3 {
 		t.Fatalf("IDs not unique: %d, %d, %d", id1, id2, id3)
+	}
+}
+
+func TestSubscribeCtx(t *testing.T) {
+	b := &Bus{subs: make(map[int]chan Event)}
+	ctx, cancel := context.WithCancel(context.Background())
+
+	ch := b.SubscribeCtx(ctx)
+
+	// Events should be received while context is active
+	b.Publish(Event{Type: TreeCreated, TreeID: "ctx-test", Timestamp: time.Now()})
+
+	select {
+	case e := <-ch:
+		if e.Type != TreeCreated {
+			t.Fatalf("expected event type %q, got %q", TreeCreated, e.Type)
+		}
+		if e.TreeID != "ctx-test" {
+			t.Fatalf("expected tree ID %q, got %q", "ctx-test", e.TreeID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for event")
+	}
+
+	// Cancel context — the goroutine in SubscribeCtx should call Unsubscribe,
+	// which closes the channel.
+	cancel()
+	time.Sleep(50 * time.Millisecond) // allow goroutine to process ctx.Done
+
+	_, ok := <-ch
+	if ok {
+		t.Fatal("channel should be closed after context cancel")
+	}
+}
+
+func TestSubscribeCtxMultipleEvents(t *testing.T) {
+	b := &Bus{subs: make(map[int]chan Event)}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ch := b.SubscribeCtx(ctx)
+
+	// Publish several events and verify all are received
+	types := []string{TreeCreated, ThoughtAdded, SolutionMarked}
+	for _, typ := range types {
+		b.Publish(Event{Type: typ, TreeID: "ctx-multi", Timestamp: time.Now()})
+	}
+
+	for i, want := range types {
+		select {
+		case e := <-ch:
+			if e.Type != want {
+				t.Fatalf("event %d: expected type %q, got %q", i, want, e.Type)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("event %d: timed out waiting", i)
+		}
+	}
+}
+
+func TestSubscribeCtxAlreadyCanceled(t *testing.T) {
+	b := &Bus{subs: make(map[int]chan Event)}
+
+	// Create an already-canceled context
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	ch := b.SubscribeCtx(ctx)
+
+	// The cleanup goroutine should close the channel promptly
+	time.Sleep(50 * time.Millisecond)
+
+	_, ok := <-ch
+	if ok {
+		t.Fatal("channel should be closed for already-canceled context")
 	}
 }

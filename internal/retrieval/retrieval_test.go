@@ -894,3 +894,75 @@ func TestVectorSearchCap(t *testing.T) {
 		t.Fatalf("negative-dim cap should be 1000, got %d", capNeg)
 	}
 }
+
+// --- CheckDimensionMismatch tests ---
+
+func TestCheckDimensionMismatchNoEmbeddings(t *testing.T) {
+	// Temporarily null out all embeddings so the query finds no non-NULL rows.
+	d := db.Get()
+	d.Exec(`UPDATE solutions SET embedding = NULL WHERE embedding IS NOT NULL`)
+
+	// Set a real (non-noop) provider so Active() returns true.
+	embeddings.SetProvider(&mockProvider{vectors: map[string][]float32{}})
+	defer embeddings.SetProvider(&noopForTest{})
+
+	// Should not panic — the function silently returns when no stored embeddings exist.
+	CheckDimensionMismatch()
+}
+
+func TestCheckDimensionMismatchMatch(t *testing.T) {
+	// Store a solution with a 3-dim embedding, then check with a 3-dim provider.
+	d := db.Get()
+
+	d.Exec(`INSERT OR IGNORE INTO trees (id,problem,root_id,search_strategy,max_depth,branching_factor,status,created_at,updated_at)
+		VALUES ('dim-tree','dim test','dim-root','bfs',5,3,'active','2024-01-01T00:00:00Z','2024-01-01T00:00:00Z')`)
+	d.Exec(`INSERT OR IGNORE INTO nodes (id,tree_id,parent_id,thought,score,depth,is_terminal,metadata,created_at)
+		VALUES ('dim-root','dim-tree',NULL,'dim test',0,0,0,'{}','2024-01-01T00:00:00Z')`)
+
+	mock := &mockProvider{vectors: map[string][]float32{
+		"dimension match problem": {0.5, 0.5, 0.5},
+	}}
+	embeddings.SetProvider(mock)
+	defer embeddings.SetProvider(&noopForTest{})
+
+	SuppressAutoLink(true)
+	defer SuppressAutoLink(false)
+
+	_, err := StoreSolution("dim-tree", "dimension match problem", "solution for dim match",
+		[]string{"thought"}, nil, 0.8, []string{"dim-test"})
+	if err != nil {
+		t.Fatalf("StoreSolution: %v", err)
+	}
+
+	// Provider has 3 dims, stored embedding has 3 dims — should not warn or panic.
+	CheckDimensionMismatch()
+}
+
+// mockProvider5Dim returns 5-dimensional embeddings for testing dimension mismatch.
+type mockProvider5Dim struct{}
+
+func (m *mockProvider5Dim) Dimensions() int { return 5 }
+func (m *mockProvider5Dim) Embed(text string) ([]float32, error) {
+	return []float32{0.1, 0.2, 0.3, 0.4, 0.5}, nil
+}
+
+func TestCheckDimensionMismatchWarning(t *testing.T) {
+	// The DB already has 3-dim embeddings from the previous test.
+	// Switch to a 5-dim provider. The function should log a warning but not panic.
+	embeddings.SetProvider(&mockProvider5Dim{})
+	defer embeddings.SetProvider(&noopForTest{})
+
+	// Should not panic even though dimensions differ (3 stored vs 5 current).
+	CheckDimensionMismatch()
+}
+
+func TestCheckDimensionMismatchNoDimensions(t *testing.T) {
+	// noopForTest has Dimensions()==0 but Active() still returns true
+	// (only the package-private noopProvider triggers Active()==false).
+	// This exercises the path where the current provider reports 0 dimensions
+	// while stored embeddings have a non-zero length — verifying no panic.
+	embeddings.SetProvider(&noopForTest{})
+	defer embeddings.SetProvider(&noopForTest{})
+
+	CheckDimensionMismatch()
+}
