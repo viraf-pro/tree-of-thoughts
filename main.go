@@ -331,13 +331,19 @@ func registerTreeTools(s *server.MCPServer) {
 
 	// get_all_paths — compare all explored branches
 	s.AddTool(mcp.NewTool("get_all_paths",
-		mcp.WithDescription("Return all paths to leaf and terminal nodes, ranked by average score. Use this to compare all explored branches before deciding which to mark as solution. Essential for deep research where multiple branches are explored in parallel."),
+		mcp.WithDescription("Return paths to leaf/terminal nodes, ranked by average score. Returns top 5 by default."),
 		mcp.WithString("tree_id", mcp.Required()),
+		mcp.WithNumber("limit", mcp.Description("Max paths to return"), mcp.DefaultNumber(5)),
 	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		treeID, _ := req.RequireString("tree_id")
+		limit := optInt(req, "limit", 5)
 		paths, err := tree.GetAllPaths(treeID)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
+		}
+		total := len(paths)
+		if limit > 0 && limit < len(paths) {
+			paths = paths[:limit]
 		}
 		items := make([]map[string]any, len(paths))
 		for i, p := range paths {
@@ -350,9 +356,11 @@ func registerTreeTools(s *server.MCPServer) {
 				"averageScore": p.AverageScore,
 			}
 		}
+		msg := fmt.Sprintf("%d paths found (showing %d). Ranked by average score.", total, len(paths))
 		return textResult(map[string]any{
-			"message": fmt.Sprintf("%d paths found. Ranked by average score.", len(paths)),
-			"paths":   items,
+			"message":    msg,
+			"totalPaths": total,
+			"paths":      items,
 		}), nil
 	})
 
