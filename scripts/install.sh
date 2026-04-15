@@ -2,7 +2,11 @@
 set -euo pipefail
 
 # Install tot-mcp binary from GitHub releases or build from source.
-# Called by SessionStart hook. Stores binary in CLAUDE_PLUGIN_DATA/bin/.
+# Called by SessionStart hook and launch.sh. Stores binary in CLAUDE_PLUGIN_DATA/bin/.
+#
+# The binary version is pinned to the plugin version in plugin.json to keep
+# the binary, skills, agents, and hooks in sync. When the marketplace updates
+# the plugin files, the next session start downloads the matching binary.
 
 REPO="viraf-pro/tree-of-thoughts"
 BINARY_NAME="tot-mcp"
@@ -20,26 +24,34 @@ case "$ARCH" in
   aarch64|arm64) ARCH="arm64" ;;
 esac
 
-# Get latest release tag from GitHub
-LATEST=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/' || echo "")
+# Read target version from plugin.json to stay in sync with plugin files
+PLUGIN_JSON="${PLUGIN_ROOT}/.claude-plugin/plugin.json"
+if [ -f "$PLUGIN_JSON" ]; then
+  TARGET=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/v\1/p' "$PLUGIN_JSON" | head -1)
+fi
 
-# Check if already installed and up to date
+# Fallback to latest release if plugin.json is missing or unparseable
+if [ -z "${TARGET:-}" ]; then
+  TARGET=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1 || echo "")
+fi
+
+# Check if already installed and at the correct version
 if [ -f "$INSTALL_DIR/$BINARY_NAME" ] && [ -f "$VERSION_FILE" ]; then
   INSTALLED=$(cat "$VERSION_FILE")
-  if [ "$INSTALLED" = "$LATEST" ] && [ -n "$LATEST" ]; then
+  if [ "$INSTALLED" = "$TARGET" ] && [ -n "$TARGET" ]; then
     exit 0
   fi
 fi
 
 # Try downloading pre-built binary from GitHub releases
-if [ -n "$LATEST" ]; then
+if [ -n "$TARGET" ]; then
   ARCHIVE="${BINARY_NAME}-${OS}-${ARCH}.tar.gz"
-  URL="https://github.com/${REPO}/releases/download/${LATEST}/${ARCHIVE}"
+  URL="https://github.com/${REPO}/releases/download/${TARGET}/${ARCHIVE}"
 
   if curl -fsSL "$URL" -o "/tmp/${ARCHIVE}" 2>/dev/null; then
     tar -xzf "/tmp/${ARCHIVE}" -C "$INSTALL_DIR" "$BINARY_NAME" 2>/dev/null && {
       chmod +x "$INSTALL_DIR/$BINARY_NAME"
-      echo "$LATEST" > "$VERSION_FILE"
+      echo "$TARGET" > "$VERSION_FILE"
       rm -f "/tmp/${ARCHIVE}"
       exit 0
     }

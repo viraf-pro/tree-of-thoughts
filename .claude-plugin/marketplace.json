@@ -12,7 +12,7 @@
         "repo": "viraf-pro/tree-of-thoughts"
       },
       "description": "Tree of Thoughts MCP server — structured multi-path reasoning with 39 tools, 21 skills, 7 agents, persistent knowledge graph, experiment runner, and live dashboard. Single binary, zero config.",
-      "version": "0.4.4",
+      "version": "0.4.5",
       "author": {
         "name": "viraf-pro"
       },

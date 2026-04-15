@@ -50,4 +50,22 @@ if echo "$COMPACT" | grep -q "eligible"; then
   fi
 fi
 
+# Dashboard URL
+DASH_PORT="${TOT_DASHBOARD_PORT:-4545}"
+echo "Dashboard: http://127.0.0.1:${DASH_PORT}"
+echo "API: http://127.0.0.1:${DASH_PORT}/api"
+
+# Check for plugin updates
+PLUGIN_JSON="${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json"
+if [ -f "$PLUGIN_JSON" ]; then
+  CURRENT=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$PLUGIN_JSON" | head -1)
+  LATEST=$(curl -fsSL "https://api.github.com/repos/viraf-pro/tree-of-thoughts/releases/latest" 2>/dev/null | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"v\([^"]*\)".*/\1/p' | head -1 || echo "")
+  if [ -n "$LATEST" ] && [ -n "$CURRENT" ] && [ "$LATEST" != "$CURRENT" ]; then
+    echo ""
+    echo "UPDATE AVAILABLE: v${CURRENT} → v${LATEST}"
+    echo "Run: /plugin marketplace update tree-of-thoughts"
+    echo "Then restart Claude Code to apply."
+  fi
+fi
+
 echo "---"
