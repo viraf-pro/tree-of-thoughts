@@ -1,0 +1,39 @@
+{
+  "name": "tree-of-thoughts",
+  "version": "0.5.0",
+  "description": "Tree of Thoughts MCP server — structured multi-path reasoning with persistent storage, hybrid retrieval, knowledge graph, experiment runner, and live dashboard",
+  "author": {
+    "name": "viraf-pro",
+    "url": "https://github.com/viraf-pro"
+  },
+  "homepage": "https://github.com/viraf-pro/tree-of-thoughts",
+  "repository": "https://github.com/viraf-pro/tree-of-thoughts",
+  "license": "MIT",
+  "keywords": [
+    "tree-of-thoughts",
+    "reasoning",
+    "mcp",
+    "knowledge-graph",
+    "deep-research",
+    "experiments",
+    "agents",
+    "dashboard"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Tree of Thoughts",
+    "shortDescription": "Structured multi-path reasoning with persistent knowledge",
+    "longDescription": "39 MCP tools, 21 skills, 7 agents for deep research, decision-making, knowledge management, and autonomous experiments. Single binary, zero config, live dashboard.",
+    "developerName": "viraf-pro",
+    "category": "Productivity",
+    "capabilities": ["Read", "Write"],
+    "websiteURL": "https://github.com/viraf-pro/tree-of-thoughts",
+    "defaultPrompt": [
+      "Use Tree of Thoughts to research this problem deeply",
+      "Use Tree of Thoughts to decide between these options",
+      "Use Tree of Thoughts to review and maintain the knowledge base"
+    ],
+    "brandColor": "#378ADD"
+  }
+}

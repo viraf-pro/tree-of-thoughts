@@ -24,8 +24,12 @@ case "$ARCH" in
   aarch64|arm64) ARCH="arm64" ;;
 esac
 
-# Read target version from plugin.json to stay in sync with plugin files
+# Read target version from plugin.json to stay in sync with plugin files.
+# Check both Claude Code and Codex plugin manifests.
 PLUGIN_JSON="${PLUGIN_ROOT}/.claude-plugin/plugin.json"
+if [ ! -f "$PLUGIN_JSON" ]; then
+  PLUGIN_JSON="${PLUGIN_ROOT}/.codex-plugin/plugin.json"
+fi
 if [ -f "$PLUGIN_JSON" ]; then
   TARGET=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/v\1/p' "$PLUGIN_JSON" | head -1)
 fi
