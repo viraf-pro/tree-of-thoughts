@@ -16,6 +16,9 @@ VERSION_FILE="${CLAUDE_PLUGIN_DATA}/.installed-version"
 
 mkdir -p "$INSTALL_DIR"
 
+# Use portable temp directory
+: "${TMPDIR:=/tmp}"
+
 # Detect OS and arch
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m)
@@ -54,7 +57,7 @@ if [ -n "$TARGET" ]; then
 
   DOWNLOADED=false
   for attempt in 1 2 3; do
-    if curl -fsSL --retry 2 "${BASE_URL}/${ARCHIVE}" -o "/tmp/${ARCHIVE}" 2>/dev/null; then
+    if curl -fsSL --retry 2 "${BASE_URL}/${ARCHIVE}" -o "${TMPDIR}/${ARCHIVE}" 2>/dev/null; then
       DOWNLOADED=true
       break
     fi
@@ -64,31 +67,31 @@ if [ -n "$TARGET" ]; then
   if [ "$DOWNLOADED" = true ]; then
     # Verify checksum if checksums.txt is available
     CHECKSUM_OK=true
-    if curl -fsSL "${BASE_URL}/checksums.txt" -o "/tmp/checksums.txt" 2>/dev/null; then
-      EXPECTED=$(grep "${ARCHIVE}" /tmp/checksums.txt | awk '{print $1}')
+    if curl -fsSL "${BASE_URL}/checksums.txt" -o "${TMPDIR}/checksums.txt" 2>/dev/null; then
+      EXPECTED=$(grep "${ARCHIVE}" ${TMPDIR}/checksums.txt | awk '{print $1}')
       if [ -n "$EXPECTED" ]; then
         if command -v sha256sum &>/dev/null; then
-          ACTUAL=$(sha256sum "/tmp/${ARCHIVE}" | awk '{print $1}')
+          ACTUAL=$(sha256sum "${TMPDIR}/${ARCHIVE}" | awk '{print $1}')
         else
-          ACTUAL=$(shasum -a 256 "/tmp/${ARCHIVE}" | awk '{print $1}')
+          ACTUAL=$(shasum -a 256 "${TMPDIR}/${ARCHIVE}" | awk '{print $1}')
         fi
         if [ "$ACTUAL" != "$EXPECTED" ]; then
           echo "tot-mcp: checksum mismatch for ${ARCHIVE}" >&2
           CHECKSUM_OK=false
         fi
       fi
-      rm -f /tmp/checksums.txt
+      rm -f ${TMPDIR}/checksums.txt
     fi
 
     if [ "$CHECKSUM_OK" = true ]; then
-      tar -xzf "/tmp/${ARCHIVE}" -C "$INSTALL_DIR" "$BINARY_NAME" 2>/dev/null && {
+      tar -xzf "${TMPDIR}/${ARCHIVE}" -C "$INSTALL_DIR" "$BINARY_NAME" 2>/dev/null && {
         chmod +x "$INSTALL_DIR/$BINARY_NAME"
         echo "$TARGET" > "$VERSION_FILE"
-        rm -f "/tmp/${ARCHIVE}"
+        rm -f "${TMPDIR}/${ARCHIVE}"
         exit 0
       }
     fi
-    rm -f "/tmp/${ARCHIVE}"
+    rm -f "${TMPDIR}/${ARCHIVE}"
   fi
 fi
 

@@ -20,7 +20,7 @@
   "mcpServers": {
     "tree-of-thoughts": {
       "type": "stdio",
-      "command": "${CLAUDE_PLUGIN_ROOT}/scripts/launch.sh",
+      "command": "${CLAUDE_PLUGIN_ROOT}/scripts/launch",
       "env": {
         "TOT_DB_PATH": "${CLAUDE_PLUGIN_DATA}/tot.db",
         "TOT_DASHBOARD_PORT": "4545"

@@ -1,0 +1,13 @@
+#!/usr/bin/env sh
+# Cross-platform launcher for tot-mcp MCP server.
+# Detects OS and delegates to the appropriate script.
+# This file has no extension so it works as a command on all platforms.
+
+case "$(uname -s 2>/dev/null)" in
+  MINGW*|MSYS*|CYGWIN*)
+    exec "$(dirname "$0")/launch.bat" "$@"
+    ;;
+  *)
+    exec "$(dirname "$0")/launch.sh" "$@"
+    ;;
+esac
