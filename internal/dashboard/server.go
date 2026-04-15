@@ -75,9 +75,11 @@ func handleTrees(w http.ResponseWriter, r *http.Request) {
 	}
 	d := db.Get()
 	rows, err := d.Query(`SELECT t.id, t.problem, t.search_strategy, t.status, t.created_at,
-		(SELECT COUNT(*) FROM nodes WHERE tree_id=t.id) as node_count,
-		(SELECT COUNT(*) FROM experiment_results WHERE tree_id=t.id) as exp_count
-		FROM trees t ORDER BY t.created_at DESC`)
+		COALESCE(n.cnt, 0), COALESCE(e.cnt, 0)
+		FROM trees t
+		LEFT JOIN (SELECT tree_id, COUNT(*) as cnt FROM nodes GROUP BY tree_id) n ON n.tree_id = t.id
+		LEFT JOIN (SELECT tree_id, COUNT(*) as cnt FROM experiment_results GROUP BY tree_id) e ON e.tree_id = t.id
+		ORDER BY t.created_at DESC`)
 	if err != nil {
 		jsonErr(w, err)
 		return
