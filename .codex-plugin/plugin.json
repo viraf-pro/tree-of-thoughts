@@ -1,6 +1,6 @@
 {
   "name": "tree-of-thoughts",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Tree of Thoughts MCP server — structured multi-path reasoning with persistent storage, hybrid retrieval, knowledge graph, experiment runner, and live dashboard",
   "author": {
     "name": "viraf-pro",
