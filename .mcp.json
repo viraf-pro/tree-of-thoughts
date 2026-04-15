@@ -1,9 +1,8 @@
 {
   "mcpServers": {
     "tree-of-thoughts": {
-      "command": "${CLAUDE_PLUGIN_DATA}/bin/tot-mcp",
+      "command": "./tot-mcp",
       "env": {
-        "TOT_DB_PATH": "${CLAUDE_PLUGIN_DATA}/tot.db",
         "TOT_DASHBOARD_PORT": "4545"
       }
     }
