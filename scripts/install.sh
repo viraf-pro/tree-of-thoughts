@@ -46,15 +46,35 @@ fi
 # Try downloading pre-built binary from GitHub releases
 if [ -n "$TARGET" ]; then
   ARCHIVE="${BINARY_NAME}-${OS}-${ARCH}.tar.gz"
-  URL="https://github.com/${REPO}/releases/download/${TARGET}/${ARCHIVE}"
+  BASE_URL="https://github.com/${REPO}/releases/download/${TARGET}"
 
-  if curl -fsSL "$URL" -o "/tmp/${ARCHIVE}" 2>/dev/null; then
-    tar -xzf "/tmp/${ARCHIVE}" -C "$INSTALL_DIR" "$BINARY_NAME" 2>/dev/null && {
-      chmod +x "$INSTALL_DIR/$BINARY_NAME"
-      echo "$TARGET" > "$VERSION_FILE"
-      rm -f "/tmp/${ARCHIVE}"
-      exit 0
-    }
+  if curl -fsSL "${BASE_URL}/${ARCHIVE}" -o "/tmp/${ARCHIVE}" 2>/dev/null; then
+    # Verify checksum if checksums.txt is available
+    CHECKSUM_OK=true
+    if curl -fsSL "${BASE_URL}/checksums.txt" -o "/tmp/checksums.txt" 2>/dev/null; then
+      EXPECTED=$(grep "${ARCHIVE}" /tmp/checksums.txt | awk '{print $1}')
+      if [ -n "$EXPECTED" ]; then
+        if command -v sha256sum &>/dev/null; then
+          ACTUAL=$(sha256sum "/tmp/${ARCHIVE}" | awk '{print $1}')
+        else
+          ACTUAL=$(shasum -a 256 "/tmp/${ARCHIVE}" | awk '{print $1}')
+        fi
+        if [ "$ACTUAL" != "$EXPECTED" ]; then
+          echo "tot-mcp: checksum mismatch for ${ARCHIVE}" >&2
+          CHECKSUM_OK=false
+        fi
+      fi
+      rm -f /tmp/checksums.txt
+    fi
+
+    if [ "$CHECKSUM_OK" = true ]; then
+      tar -xzf "/tmp/${ARCHIVE}" -C "$INSTALL_DIR" "$BINARY_NAME" 2>/dev/null && {
+        chmod +x "$INSTALL_DIR/$BINARY_NAME"
+        echo "$TARGET" > "$VERSION_FILE"
+        rm -f "/tmp/${ARCHIVE}"
+        exit 0
+      }
+    fi
     rm -f "/tmp/${ARCHIVE}"
   fi
 fi
