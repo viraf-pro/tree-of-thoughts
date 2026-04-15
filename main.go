@@ -296,8 +296,19 @@ func registerTreeTools(s *server.MCPServer) {
 			return mcp.NewToolResultError("Node not found"), nil
 		}
 		children, _ := tree.GetChildren(treeID, nodeID)
+		childSummaries := make([]map[string]any, len(children))
+		for i, c := range children {
+			childSummaries[i] = map[string]any{
+				"id": c.ID, "thought": truncate(c.Thought, 80),
+				"score": c.Score, "evaluation": c.Evaluation, "depth": c.Depth,
+			}
+		}
 		path, _ := tree.GetPathToNode(treeID, nodeID)
-		return textResult(map[string]any{"node": node, "children": children, "pathFromRoot": path.Thoughts, "pathScore": path.AverageScore}), nil
+		shortPath := make([]string, len(path.Thoughts))
+		for i, t := range path.Thoughts {
+			shortPath[i] = truncate(t, 80)
+		}
+		return textResult(map[string]any{"node": node, "children": childSummaries, "pathFromRoot": shortPath, "pathScore": path.AverageScore}), nil
 	})
 
 	// get_frontier — see all expandable nodes without popping
@@ -313,7 +324,7 @@ func registerTreeTools(s *server.MCPServer) {
 		items := make([]map[string]any, len(nodes))
 		for i, n := range nodes {
 			item := map[string]any{
-				"id": n.ID, "thought": n.Thought, "score": n.Score, "depth": n.Depth,
+				"id": n.ID, "thought": truncate(n.Thought, 80), "score": n.Score, "depth": n.Depth,
 			}
 			if n.Evaluation != nil {
 				item["evaluation"] = *n.Evaluation
@@ -347,9 +358,13 @@ func registerTreeTools(s *server.MCPServer) {
 		}
 		items := make([]map[string]any, len(paths))
 		for i, p := range paths {
+			short := make([]string, len(p.Thoughts))
+			for k, t := range p.Thoughts {
+				short[k] = truncate(t, 80)
+			}
 			items[i] = map[string]any{
 				"rank":         i + 1,
-				"thoughts":     p.Thoughts,
+				"thoughts":     short,
 				"nodeIds":      p.NodeIDs,
 				"depth":        p.Depth,
 				"totalScore":   p.TotalScore,
