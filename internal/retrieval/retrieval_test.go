@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/tot-mcp/tot-mcp-go/internal/db"
+	"github.com/tot-mcp/tot-mcp-go/internal/embeddings"
 )
 
 func TestMain(m *testing.M) {
@@ -728,6 +729,117 @@ func TestDriftScanDetectsAbandonedWithValue(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("expected abandoned-val in AbandonedWithValue")
+	}
+}
+
+// --- Hybrid retrieval tests (with mock embedding provider) ---
+
+// mockProvider returns deterministic embeddings for testing hybrid search.
+type mockProvider struct {
+	vectors map[string][]float32
+}
+
+func (m *mockProvider) Dimensions() int { return 3 }
+func (m *mockProvider) Embed(text string) ([]float32, error) {
+	if v, ok := m.vectors[text]; ok {
+		return v, nil
+	}
+	// Default: hash-based deterministic vector
+	h := float32(len(text) % 10)
+	return []float32{h / 10, (h + 1) / 10, (h + 2) / 10}, nil
+}
+
+// noopForTest satisfies the Provider interface with no-op behavior.
+type noopForTest struct{}
+
+func (n *noopForTest) Dimensions() int                 { return 0 }
+func (n *noopForTest) Embed(string) ([]float32, error) { return nil, nil }
+
+func TestHybridRetrievalBoost(t *testing.T) {
+	d := db.Get()
+
+	// Setup: tree + nodes for FK
+	d.Exec(`INSERT OR IGNORE INTO trees (id,problem,root_id,search_strategy,max_depth,branching_factor,status,created_at,updated_at)
+		VALUES ('hybrid-tree','hybrid test','hybrid-root','bfs',5,3,'active','2024-01-01T00:00:00Z','2024-01-01T00:00:00Z')`)
+	d.Exec(`INSERT OR IGNORE INTO nodes (id,tree_id,parent_id,thought,score,depth,is_terminal,metadata,created_at)
+		VALUES ('hybrid-root','hybrid-tree',NULL,'hybrid test',0,0,0,'{}','2024-01-01T00:00:00Z')`)
+
+	// Install mock embedding provider.
+	// The query and the Go solution share the word "concurrency" so FTS5 can match.
+	mock := &mockProvider{vectors: map[string][]float32{
+		"concurrency goroutine patterns":     {0.9, 0.1, 0.1},
+		"concurrency goroutine mutex design": {0.85, 0.15, 0.1},
+		"react rendering optimization":       {0.1, 0.1, 0.9},
+	}}
+	embeddings.SetProvider(mock)
+	defer embeddings.SetProvider(&noopForTest{})
+
+	// Store solutions with embeddings active
+	SuppressAutoLink(true)
+	defer SuppressAutoLink(false)
+
+	StoreSolution("hybrid-tree", "concurrency goroutine mutex design",
+		"use channels and mutexes for synchronization",
+		[]string{"analyze race conditions"}, nil, 0.8, []string{"go", "concurrency"})
+
+	StoreSolution("hybrid-tree", "react rendering optimization",
+		"use React.memo and useMemo hooks",
+		[]string{"profile render cycles"}, nil, 0.7, []string{"react"})
+
+	// Query shares "concurrency" and "goroutine" with the Go solution for FTS5 keyword match,
+	// and has a close vector for vector match — triggering the hybrid 1.2x boost.
+	results, err := Retrieve("concurrency goroutine patterns", 5, nil)
+	if err != nil {
+		t.Fatalf("Retrieve: %v", err)
+	}
+
+	// The Go solution should appear with "hybrid" match type and boosted similarity
+	var goResult *Result
+	for i, r := range results {
+		if strings.Contains(r.Problem, "concurrency") || strings.Contains(r.Problem, "goroutine") {
+			goResult = &results[i]
+			break
+		}
+	}
+
+	if goResult == nil {
+		t.Fatal("expected Go concurrency solution in results")
+	}
+	if goResult.MatchType != "hybrid" {
+		t.Fatalf("expected matchType='hybrid', got %q", goResult.MatchType)
+	}
+}
+
+func TestHybridRetrievalWithTokenBudget(t *testing.T) {
+	mock := &mockProvider{vectors: map[string][]float32{
+		"long solution budget test": {0.7, 0.2, 0.1},
+	}}
+	embeddings.SetProvider(mock)
+	defer embeddings.SetProvider(&noopForTest{})
+
+	d := db.Get()
+	longSol := strings.Repeat("detailed analysis step. ", 200)
+	d.Exec(`INSERT OR IGNORE INTO trees (id,problem,root_id,search_strategy,max_depth,branching_factor,status,created_at,updated_at)
+		VALUES ('budget2-tree','budget2','budget2-root','bfs',5,3,'active','2024-01-01T00:00:00Z','2024-01-01T00:00:00Z')`)
+	d.Exec(`INSERT OR IGNORE INTO nodes (id,tree_id,parent_id,thought,score,depth,is_terminal,metadata,created_at)
+		VALUES ('budget2-root','budget2-tree',NULL,'budget2',0,0,0,'{}','2024-01-01T00:00:00Z')`)
+
+	SuppressAutoLink(true)
+	StoreSolution("budget2-tree", "long solution budget test", longSol,
+		[]string{"step 1", "step 2"}, nil, 0.8, []string{"budget"})
+	SuppressAutoLink(false)
+
+	// Retrieve with very small token budget
+	results, err := Retrieve("long solution budget test", 5, nil, 30)
+	if err != nil {
+		t.Fatalf("Retrieve: %v", err)
+	}
+	if len(results) == 0 {
+		t.Fatal("expected at least 1 result")
+	}
+	// Solution should be truncated
+	if len(results[0].Solution) >= len(longSol) {
+		t.Fatalf("expected truncation: solution len %d >= original %d", len(results[0].Solution), len(longSol))
 	}
 }
 

@@ -43,6 +43,12 @@ func Get() Provider {
 	return cached
 }
 
+// SetProvider overrides the cached provider. For testing only.
+func SetProvider(p Provider) {
+	cachedOnce.Do(func() {}) // ensure sync.Once is spent
+	cached = p
+}
+
 func get() Provider {
 	explicit := strings.ToLower(os.Getenv("TOT_EMBED_PROVIDER"))
 	model := os.Getenv("TOT_EMBED_MODEL")
