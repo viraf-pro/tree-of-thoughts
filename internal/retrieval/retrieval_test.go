@@ -883,4 +883,14 @@ func TestVectorSearchCap(t *testing.T) {
 	if cap3072 < 100 {
 		t.Fatalf("3072-dim cap should be at least 100, got %d", cap3072)
 	}
+
+	// dims <= 0 should fall back to the default cap of 1000
+	capZero := vectorSearchCap(0)
+	if capZero != 1000 {
+		t.Fatalf("zero-dim cap should be 1000, got %d", capZero)
+	}
+	capNeg := vectorSearchCap(-1)
+	if capNeg != 1000 {
+		t.Fatalf("negative-dim cap should be 1000, got %d", capNeg)
+	}
 }

@@ -183,3 +183,19 @@ func TestProviderSelectionCustomModel(t *testing.T) {
 		t.Fatalf("custom model: got %q, want custom-model-v2", op.model)
 	}
 }
+
+func TestActiveWithNoop(t *testing.T) {
+	SetProvider(&noopProvider{})
+	if Active() {
+		t.Fatal("Active() should return false with noopProvider")
+	}
+}
+
+func TestActiveWithRealProvider(t *testing.T) {
+	// openaiProvider counts as "active" (even without a real key)
+	SetProvider(&openaiProvider{key: "fake", model: "test"})
+	defer SetProvider(&noopProvider{}) // restore
+	if !Active() {
+		t.Fatal("Active() should return true with openaiProvider")
+	}
+}

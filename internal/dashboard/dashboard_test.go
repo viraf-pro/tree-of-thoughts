@@ -677,3 +677,59 @@ func TestHandleSSENoFlusher(t *testing.T) {
 	handleSSE(w, req)
 	// Should return 500
 }
+
+func TestStaticChartJS(t *testing.T) {
+	ln, _ := net.Listen("tcp", "127.0.0.1:0")
+	port := ln.Addr().(*net.TCPAddr).Port
+	ln.Close()
+
+	url, err := Start(port)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer Stop()
+
+	resp, err := http.Get(url + "/static/chart.umd.js")
+	if err != nil {
+		t.Fatalf("GET /static/chart.umd.js: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "application/javascript" {
+		t.Fatalf("content-type: %q", ct)
+	}
+	if cc := resp.Header.Get("Cache-Control"); cc != "public, max-age=86400" {
+		t.Fatalf("cache-control: %q", cc)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if len(body) < 1000 {
+		t.Fatalf("chart.js too small: %d bytes", len(body))
+	}
+}
+
+func TestStaticD3JS(t *testing.T) {
+	ln, _ := net.Listen("tcp", "127.0.0.1:0")
+	port := ln.Addr().(*net.TCPAddr).Port
+	ln.Close()
+
+	url, err := Start(port)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer Stop()
+
+	resp, err := http.Get(url + "/static/d3.min.js")
+	if err != nil {
+		t.Fatalf("GET /static/d3.min.js: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status: %d", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if len(body) < 1000 {
+		t.Fatalf("d3.js too small: %d bytes", len(body))
+	}
+}
