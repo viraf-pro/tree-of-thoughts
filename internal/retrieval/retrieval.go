@@ -32,6 +32,28 @@ type Result struct {
 	MatchType  string   `json:"matchType"`
 }
 
+// CheckDimensionMismatch warns if stored embeddings have different dimensions
+// than the current provider. This can happen when switching providers (e.g.,
+// local 384-dim to OpenAI 1536-dim). Mismatched embeddings return 0 similarity.
+func CheckDimensionMismatch() {
+	if !embeddings.Active() {
+		return
+	}
+	d := db.Get()
+	var blob []byte
+	err := d.QueryRow(`SELECT embedding FROM solutions WHERE embedding IS NOT NULL LIMIT 1`).Scan(&blob)
+	if err != nil {
+		return // no stored embeddings yet
+	}
+	stored := encoding.BytesToFloat32(blob)
+	current := embeddings.Get().Dimensions()
+	if len(stored) > 0 && len(stored) != current {
+		log.Printf("WARNING: stored embeddings have %d dimensions but current provider uses %d. "+
+			"Semantic search will not work for existing solutions. "+
+			"Re-embed with: SELECT id FROM solutions WHERE embedding IS NOT NULL", len(stored), current)
+	}
+}
+
 // StoreSolution saves a solution with an optional embedding.
 // rationale is optional — pass "" to skip.
 func StoreSolution(treeID, problem, solution string, thoughts, pathIDs []string, score float64, tags []string, rationale ...string) (string, error) {

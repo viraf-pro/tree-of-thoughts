@@ -43,6 +43,7 @@ func main() {
 	ep := embeddings.Get()
 	if embeddings.Active() {
 		log.Printf("Embedding provider: %T (%d dimensions)", ep, ep.Dimensions())
+		retrieval.CheckDimensionMismatch()
 	} else {
 		log.Printf("Embedding provider: none (FTS5 keyword search only)")
 	}
