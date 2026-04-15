@@ -276,17 +276,27 @@ func TestPluginManifestValid(t *testing.T) {
 }
 
 func TestMCPConfigValid(t *testing.T) {
+	// .mcp.json is project-level config (for developers working in the repo)
 	content, err := os.ReadFile(".mcp.json")
 	if err != nil {
 		t.Fatalf("read .mcp.json: %v", err)
 	}
 	text := string(content)
-
-	if !strings.Contains(text, "CLAUDE_PLUGIN_DATA") {
-		t.Error(".mcp.json should reference CLAUDE_PLUGIN_DATA for binary path")
-	}
 	if !strings.Contains(text, "tree-of-thoughts") {
 		t.Error(".mcp.json should define tree-of-thoughts server")
+	}
+
+	// plugin.json is plugin-level config (for marketplace installs)
+	pluginContent, err := os.ReadFile(".claude-plugin/plugin.json")
+	if err != nil {
+		t.Fatalf("read plugin.json: %v", err)
+	}
+	pluginText := string(pluginContent)
+	if !strings.Contains(pluginText, "mcpServers") {
+		t.Error("plugin.json should declare mcpServers for plugin installs")
+	}
+	if !strings.Contains(pluginText, "CLAUDE_PLUGIN_ROOT") {
+		t.Error("plugin.json mcpServers should reference CLAUDE_PLUGIN_ROOT for launcher")
 	}
 }
 
