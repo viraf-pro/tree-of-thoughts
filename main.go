@@ -117,7 +117,7 @@ func main() {
 	}
 }
 
-func j(v any) string { b, _ := json.MarshalIndent(v, "", "  "); return string(b) }
+func j(v any) string { b, _ := json.Marshal(v); return string(b) }
 
 func textResult(v any) *mcp.CallToolResult { return mcp.NewToolResultText(j(v)) }
 
