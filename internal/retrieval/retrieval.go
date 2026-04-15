@@ -212,8 +212,8 @@ func vectorSearch(query string, limit int) ([]Result, error) {
 
 		var thoughts []string
 		var tags []string
-		json.Unmarshal([]byte(thoughtsStr), &thoughts)
-		json.Unmarshal([]byte(tagsStr), &tags)
+		if err := json.Unmarshal([]byte(thoughtsStr), &thoughts); err != nil { log.Printf("unmarshal thoughts: %v", err) }
+		if err := json.Unmarshal([]byte(tagsStr), &tags); err != nil { log.Printf("unmarshal tags: %v", err) }
 
 		candidates = append(candidates, scored{
 			Result: Result{
@@ -275,8 +275,8 @@ func keywordSearch(query string, limit int) ([]Result, error) {
 
 		var thoughts []string
 		var tags []string
-		json.Unmarshal([]byte(thoughtsStr), &thoughts)
-		json.Unmarshal([]byte(tagsStr), &tags)
+		if err := json.Unmarshal([]byte(thoughtsStr), &thoughts); err != nil { log.Printf("unmarshal thoughts: %v", err) }
+		if err := json.Unmarshal([]byte(tagsStr), &tags); err != nil { log.Printf("unmarshal tags: %v", err) }
 
 		sim := math.Max(0, 1-math.Abs(rank)/20)
 		out = append(out, Result{
@@ -339,8 +339,8 @@ func CompactAnalyze(minAgeDays int) ([]CompactCandidate, error) {
 		var c CompactCandidate
 		var thoughtsStr, tagsStr string
 		rows.Scan(&c.ID, &c.Problem, &c.Solution, &thoughtsStr, &tagsStr, &c.Score, &c.CreatedAt)
-		json.Unmarshal([]byte(thoughtsStr), &c.Thoughts)
-		json.Unmarshal([]byte(tagsStr), &c.Tags)
+		if err := json.Unmarshal([]byte(thoughtsStr), &c.Thoughts); err != nil { log.Printf("unmarshal thoughts: %v", err) }
+		if err := json.Unmarshal([]byte(tagsStr), &c.Tags); err != nil { log.Printf("unmarshal tags: %v", err) }
 
 		created, _ := time.Parse(time.RFC3339, c.CreatedAt)
 		c.AgeDays = int(time.Since(created).Hours() / 24)
@@ -907,7 +907,7 @@ func communityTags(d *sql.DB, solutionIDs []string) []string {
 		var tagsStr string
 		d.QueryRow(`SELECT tags FROM solutions WHERE id=?`, id).Scan(&tagsStr)
 		var tags []string
-		json.Unmarshal([]byte(tagsStr), &tags)
+		if err := json.Unmarshal([]byte(tagsStr), &tags); err != nil { log.Printf("unmarshal tags: %v", err) }
 		for _, t := range tags {
 			tagCount[t]++
 		}
@@ -987,7 +987,7 @@ func KnowledgeReport() (*KnowledgeReportData, error) {
 			var tagsStr string
 			tagRows.Scan(&tagsStr)
 			var tags []string
-			json.Unmarshal([]byte(tagsStr), &tags)
+			if err := json.Unmarshal([]byte(tagsStr), &tags); err != nil { log.Printf("unmarshal tags: %v", err) }
 			for _, t := range tags {
 				tagCount[t]++
 			}
@@ -1189,8 +1189,8 @@ func ExportObsidian(outDir string) error {
 		var s solData
 		var thoughtsStr, tagsStr string
 		rows.Scan(&s.id, &s.problem, &s.solution, &thoughtsStr, &tagsStr, &s.score, &s.rationale, &s.createdAt)
-		json.Unmarshal([]byte(thoughtsStr), &s.thoughts)
-		json.Unmarshal([]byte(tagsStr), &s.tags)
+		if err := json.Unmarshal([]byte(thoughtsStr), &s.thoughts); err != nil { log.Printf("unmarshal thoughts: %v", err) }
+		if err := json.Unmarshal([]byte(tagsStr), &s.tags); err != nil { log.Printf("unmarshal tags: %v", err) }
 		solutions = append(solutions, s)
 	}
 

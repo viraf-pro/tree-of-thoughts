@@ -72,9 +72,12 @@ func SetConfig(treeID string, cfg Config) error {
 		return fmt.Errorf("invalid metric_regex: %w", err)
 	}
 
-	data, _ := json.Marshal(cfg)
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("marshal config: %w", err)
+	}
 	d := db.Get()
-	_, err := d.Exec(`INSERT OR REPLACE INTO experiment_configs (tree_id,config) VALUES (?,?)`, treeID, string(data))
+	_, err = d.Exec(`INSERT OR REPLACE INTO experiment_configs (tree_id,config) VALUES (?,?)`, treeID, string(data))
 	return err
 }
 
@@ -87,7 +90,9 @@ func GetConfig(treeID string) (*Config, error) {
 		return nil, err
 	}
 	var cfg Config
-	json.Unmarshal([]byte(raw), &cfg)
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+		return nil, fmt.Errorf("unmarshal config: %w", err)
+	}
 	return &cfg, nil
 }
 
@@ -291,8 +296,10 @@ func runCmd(command, cwd string, timeout int, logPath string) (string, error) {
 
 	err := cmd.Run()
 
-	// Write log
-	os.WriteFile(logPath, buf.Bytes(), 0o644)
+	// Write log (best-effort, don't fail the experiment for logging issues)
+	if err := os.WriteFile(logPath, buf.Bytes(), 0o644); err != nil {
+		fmt.Fprintf(&buf, "\nWARN: failed to write log: %v", err)
+	}
 
 	return buf.String(), err
 }

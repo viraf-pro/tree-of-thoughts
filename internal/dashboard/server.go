@@ -282,7 +282,7 @@ func handleRetrieval(w http.ResponseWriter, r *http.Request) {
 		var hasEmb int
 		rows.Scan(&sid, &prob, &sol, &thoughtsStr, &sc, &tagsStr, &hasEmb, &created)
 		var tags []string
-		json.Unmarshal([]byte(tagsStr), &tags)
+		if err := json.Unmarshal([]byte(tagsStr), &tags); err != nil { log.Printf("unmarshal tags: %v", err) }
 		sols = append(sols, map[string]any{
 			"id": sid, "problem": prob, "solution": sol, "tags": tags,
 			"score": sc, "hasEmbedding": hasEmb == 1, "createdAt": created,
@@ -327,7 +327,11 @@ func handleSSE(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			data, _ := json.Marshal(evt)
+			data, err := json.Marshal(evt)
+			if err != nil {
+				log.Printf("marshal SSE event: %v", err)
+				continue
+			}
 			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", evt.Type, data)
 			flusher.Flush()
 		}

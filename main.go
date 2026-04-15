@@ -152,7 +152,9 @@ func registerTreeTools(s *server.MCPServer) {
 			Thought  string         `json:"thought"`
 			Metadata map[string]any `json:"metadata"`
 		}
-		json.Unmarshal(thoughtsJSON, &items)
+		if err := json.Unmarshal(thoughtsJSON, &items); err != nil {
+			return nil, fmt.Errorf("invalid thoughts JSON: %w", err)
+		}
 
 		var created []any
 		for _, item := range items {
@@ -431,8 +433,9 @@ func registerRetrievalTools(s *server.MCPServer) {
 		maxTok := optInt(req, "max_tokens", 0)
 		var tags []string
 		if raw, ok := req.GetArguments()["tags"]; ok {
-			b, _ := json.Marshal(raw)
-			json.Unmarshal(b, &tags)
+			if b, err := json.Marshal(raw); err == nil {
+				json.Unmarshal(b, &tags)
+			}
 		}
 		var results []retrieval.Result
 		var err error
@@ -462,8 +465,9 @@ func registerRetrievalTools(s *server.MCPServer) {
 		solution, _ := req.RequireString("solution")
 		var tags []string
 		if raw, ok := req.GetArguments()["tags"]; ok {
-			b, _ := json.Marshal(raw)
-			json.Unmarshal(b, &tags)
+			if b, err := json.Marshal(raw); err == nil {
+				json.Unmarshal(b, &tags)
+			}
 		}
 
 		t, err := tree.GetTree(treeID)
@@ -869,8 +873,9 @@ func registerKnowledgeTools(s *server.MCPServer) {
 		problem := optString(req, "problem", "")
 		var tags []string
 		if raw, ok := req.GetArguments()["tags"]; ok {
-			b, _ := json.Marshal(raw)
-			json.Unmarshal(b, &tags)
+			if b, err := json.Marshal(raw); err == nil {
+				json.Unmarshal(b, &tags)
+			}
 		}
 
 		result, err := web.Fetch(rawURL)
