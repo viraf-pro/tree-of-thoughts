@@ -138,7 +138,7 @@ func Execute(treeID, nodeID, previousHash string) (*Result, error) {
 	logPath := filepath.Join(cfg.WorkDir, cfg.LogFile)
 
 	// Run the command
-	output, runErr := runCmd(cfg.RunCommand, cfg.WorkDir, cfg.TimeoutSeconds, logPath)
+	output, timedOut, runErr := runCmd(cfg.RunCommand, cfg.WorkDir, cfg.TimeoutSeconds, logPath)
 	duration := time.Since(start).Seconds()
 
 	var result Result
@@ -146,8 +146,7 @@ func Execute(treeID, nodeID, previousHash string) (*Result, error) {
 	result.CommitHash = commitHash
 
 	if runErr != nil {
-		isTimeout := strings.Contains(runErr.Error(), "killed") || strings.Contains(runErr.Error(), "signal")
-		if isTimeout {
+		if timedOut {
 			result.Status = "timeout"
 		} else {
 			result.Status = "crashed"
@@ -282,7 +281,7 @@ func parseMetric(output, regex string) *float64 {
 
 // --- Command execution ---
 
-func runCmd(command, cwd string, timeout int, logPath string) (string, error) {
+func runCmd(command, cwd string, timeout int, logPath string) (output string, timedOut bool, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
 	defer cancel()
 
@@ -294,14 +293,14 @@ func runCmd(command, cwd string, timeout int, logPath string) (string, error) {
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
 
-	err := cmd.Run()
+	err = cmd.Run()
 
 	// Write log (best-effort, don't fail the experiment for logging issues)
-	if err := os.WriteFile(logPath, buf.Bytes(), 0o644); err != nil {
-		fmt.Fprintf(&buf, "\nWARN: failed to write log: %v", err)
+	if werr := os.WriteFile(logPath, buf.Bytes(), 0o644); werr != nil {
+		fmt.Fprintf(&buf, "\nWARN: failed to write log: %v", werr)
 	}
 
-	return buf.String(), err
+	return buf.String(), ctx.Err() == context.DeadlineExceeded, err
 }
 
 func readTail(path string, lines int) string {
