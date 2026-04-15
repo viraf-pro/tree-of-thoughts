@@ -30,6 +30,7 @@ Thumbs.db
 
 # Go
 vendor/
+!internal/dashboard/vendor/
 
 # Logs
 run.log

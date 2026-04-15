@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"database/sql"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -15,11 +16,27 @@ import (
 	"github.com/tot-mcp/tot-mcp-go/internal/tree"
 )
 
+//go:embed vendor/chart.umd.js
+var chartJS []byte
+
+//go:embed vendor/d3.min.js
+var d3JS []byte
+
 var srv *http.Server
 
 // Start launches the dashboard on the given port. Non-blocking.
 func Start(port int) (string, error) {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/static/chart.umd.js", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/javascript")
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		w.Write(chartJS)
+	})
+	mux.HandleFunc("/static/d3.min.js", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/javascript")
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		w.Write(d3JS)
+	})
 	mux.HandleFunc("/", handleIndex)
 	mux.HandleFunc("/api/trees", handleTrees)
 	mux.HandleFunc("/api/tree/", handleTreeDetail)

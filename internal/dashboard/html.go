@@ -6,8 +6,8 @@ const indexHTML = `<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ToT Dashboard</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<script src="/static/chart.umd.js"></script>
+<script src="/static/d3.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{--bg:#fff;--bg2:#f5f4f0;--bg3:#eae9e5;--tx:#1a1a1a;--tx2:#6b6a65;--tx3:#9c9a92;--bd:#dddcd7;--blue:#378ADD;--green:#639922;--amber:#BA7517;--red:#E24B4A;--gray:#888780;--purple:#7F77DD;--teal:#1D9E75;--radius:8px;--mono:'SF Mono',Consolas,'Liberation Mono',Menlo,monospace;--sans:system-ui,-apple-system,sans-serif}
