@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/tot-mcp/tot-mcp-go/internal/db"
 )
@@ -747,5 +748,108 @@ func TestGetTreeContextNotFound(t *testing.T) {
 	_, err := GetTreeContext("nonexistent-id", "summary")
 	if err == nil {
 		t.Fatal("expected error for nonexistent tree")
+	}
+}
+
+// --- Extended link tests ---
+
+func TestLinkTreesAllTypes(t *testing.T) {
+	for _, linkType := range []string{"depends_on", "informs", "supersedes", "related"} {
+		tr1, _, _ := CreateTree("lt type src "+linkType, "bfs", 5, 3)
+		tr2, _, _ := CreateTree("lt type tgt "+linkType, "bfs", 5, 3)
+		link, err := LinkTrees(tr1.ID, tr2.ID, linkType, "testing "+linkType)
+		if err != nil {
+			t.Fatalf("LinkTrees(%s): %v", linkType, err)
+		}
+		if link.LinkType != linkType {
+			t.Fatalf("expected %s, got %s", linkType, link.LinkType)
+		}
+	}
+}
+
+func TestLinkTreesBidirectionalRetrieval(t *testing.T) {
+	tr1, _, err := CreateTree("link bidi source", "bfs", 5, 3)
+	if err != nil {
+		t.Fatalf("CreateTree 1: %v", err)
+	}
+	tr2, _, err := CreateTree("link bidi target", "bfs", 5, 3)
+	if err != nil {
+		t.Fatalf("CreateTree 2: %v", err)
+	}
+
+	_, err = LinkTrees(tr1.ID, tr2.ID, "depends_on", "source depends on target")
+	if err != nil {
+		t.Fatalf("LinkTrees: %v", err)
+	}
+
+	// Verify retrieval from source side
+	links, err := GetTreeLinks(tr1.ID)
+	if err != nil {
+		t.Fatalf("GetTreeLinks source: %v", err)
+	}
+	found := false
+	for _, l := range links {
+		if l.TargetTree == tr2.ID && l.LinkType == "depends_on" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("link not found via GetTreeLinks from source side")
+	}
+
+	// Verify retrieval from target side
+	links2, err := GetTreeLinks(tr2.ID)
+	if err != nil {
+		t.Fatalf("GetTreeLinks target: %v", err)
+	}
+	found2 := false
+	for _, l := range links2 {
+		if l.SourceTree == tr1.ID && l.LinkType == "depends_on" {
+			found2 = true
+		}
+	}
+	if !found2 {
+		t.Fatal("link not found via GetTreeLinks from target side")
+	}
+}
+
+// --- Auto-pause tests ---
+
+func TestAutoPause(t *testing.T) {
+	tr, _, err := CreateTree("auto-pause test", "bfs", 5, 3)
+	if err != nil {
+		t.Fatalf("CreateTree: %v", err)
+	}
+
+	// Set updated_at to 61 minutes ago
+	d := db.Get()
+	oldTime := time.Now().UTC().Add(-61 * time.Minute).Format(time.RFC3339)
+	d.Exec(`UPDATE trees SET updated_at=? WHERE id=?`, oldTime, tr.ID)
+
+	n := AutoPause(30)
+	if n < 1 {
+		t.Fatalf("expected at least 1 tree paused, got %d", n)
+	}
+
+	updated, _ := GetTree(tr.ID)
+	if updated.Status != "paused" {
+		t.Fatalf("expected status=paused, got %q", updated.Status)
+	}
+}
+
+func TestAutoPauseSkipsRecent(t *testing.T) {
+	tr, _, _ := CreateTree("auto-pause recent", "bfs", 5, 3)
+	TouchTree(tr.ID)
+
+	before, _ := GetTree(tr.ID)
+	if before.Status != "active" {
+		t.Fatalf("precondition: expected active, got %q", before.Status)
+	}
+
+	AutoPause(30)
+
+	after, _ := GetTree(tr.ID)
+	if after.Status != "active" {
+		t.Fatalf("recently-touched tree should remain active, got %q", after.Status)
 	}
 }
