@@ -863,35 +863,76 @@ func registerKnowledgeTools(s *server.MCPServer) {
 
 	// drift_scan — detect knowledge entropy and drift
 	s.AddTool(mcp.NewTool("drift_scan",
-		mcp.WithDescription("Scan for knowledge entropy: duplicate trees, abandoned trees with valuable content, and never-retrieved solutions. Returns remediations with specific tool calls to fix issues. Run periodically or in CI."),
+		mcp.WithDescription("Scan for knowledge entropy: duplicate trees, abandoned trees with value, and never-retrieved solutions. Returns top examples and remediations."),
 	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		report, err := retrieval.DriftScan()
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
+		}
+		// Cap lists to top 3 per category to reduce token usage
+		if len(report.DuplicateTreePairs) > 3 {
+			report.DuplicateTreePairs = report.DuplicateTreePairs[:3]
+		}
+		if len(report.AbandonedWithValue) > 3 {
+			report.AbandonedWithValue = report.AbandonedWithValue[:3]
+		}
+		if len(report.NeverRetrieved) > 3 {
+			report.NeverRetrieved = report.NeverRetrieved[:3]
+		}
+		if len(report.Remediations) > 5 {
+			report.Remediations = report.Remediations[:5]
 		}
 		return textResult(report), nil
 	})
 
 	// knowledge_report — structured overview of the knowledge base
 	s.AddTool(mcp.NewTool("knowledge_report",
-		mcp.WithDescription("Get a structured overview of the knowledge base: top solutions (god nodes), tag coverage, graph summary, recent events, and suggested queries. Read this first before querying — it's the map of what the knowledge base knows."),
+		mcp.WithDescription("Structured overview: top solutions, tag coverage, graph summary, recent events, suggested queries."),
 	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		report, err := retrieval.KnowledgeReport()
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
+		}
+		// Cap lists to reduce token usage
+		if len(report.TopSolutions) > 3 {
+			report.TopSolutions = report.TopSolutions[:3]
+		}
+		if len(report.TagCoverage) > 10 {
+			report.TagCoverage = report.TagCoverage[:10]
+		}
+		if len(report.RecentEvents) > 5 {
+			report.RecentEvents = report.RecentEvents[:5]
 		}
 		return textResult(report), nil
 	})
 
 	// knowledge_graph — graph topology analysis
 	s.AddTool(mcp.NewTool("knowledge_graph",
-		mcp.WithDescription("Analyze the knowledge graph topology: god nodes (most connected solutions), communities (clusters of related solutions), and bridge edges (surprising cross-domain connections). Use for understanding the shape of accumulated knowledge."),
+		mcp.WithDescription("Graph topology: god nodes (most connected), community count, bridge edges. Compact summary."),
 	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		analysis, err := retrieval.AnalyzeKnowledgeGraph()
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		return textResult(analysis), nil
+		// Cap lists: god nodes to 3, communities to count only, bridges to 5
+		if len(analysis.GodNodes) > 3 {
+			analysis.GodNodes = analysis.GodNodes[:3]
+		}
+		communityCount := len(analysis.Communities)
+		if len(analysis.Communities) > 3 {
+			analysis.Communities = analysis.Communities[:3]
+		}
+		if len(analysis.Bridges) > 5 {
+			analysis.Bridges = analysis.Bridges[:5]
+		}
+		return textResult(map[string]any{
+			"totalNodes":       analysis.TotalNodes,
+			"totalEdges":       analysis.TotalEdges,
+			"godNodes":         analysis.GodNodes,
+			"communityCount":   communityCount,
+			"topCommunities":   analysis.Communities,
+			"bridgeEdges":      analysis.Bridges,
+		}), nil
 	})
 
 	// ingest_url — fetch a web page and store its content as a solution
