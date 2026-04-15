@@ -443,19 +443,16 @@ func registerRetrievalTools(s *server.MCPServer) {
 		query, _ := req.RequireString("query")
 		topK := optInt(req, "top_k", 3)
 		maxTok := optInt(req, "max_tokens", 0)
+		if maxTok <= 0 {
+			maxTok = 2000 // default cap to prevent unbounded token usage
+		}
 		var tags []string
 		if raw, ok := req.GetArguments()["tags"]; ok {
 			if b, err := json.Marshal(raw); err == nil {
 				json.Unmarshal(b, &tags)
 			}
 		}
-		var results []retrieval.Result
-		var err error
-		if maxTok > 0 {
-			results, err = retrieval.Retrieve(query, topK, tags, maxTok)
-		} else {
-			results, err = retrieval.Retrieve(query, topK, tags)
-		}
+		results, err := retrieval.Retrieve(query, topK, tags, maxTok)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
