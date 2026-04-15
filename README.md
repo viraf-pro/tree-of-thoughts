@@ -1,6 +1,6 @@
 # Tree of Thoughts MCP
 
-A single-binary MCP server for tree-structured reasoning. Persistent storage, hybrid retrieval, compounding knowledge graph, experiment runner, live dashboard, and a Claude Code plugin with 21 skills, 7 agents, and harness engineering hooks.
+A single-binary MCP server for tree-structured reasoning. Persistent storage, hybrid retrieval, compounding knowledge graph, experiment runner, live dashboard, and plugins for Claude Code and OpenAI Codex with 21 skills, 7 agents, and harness engineering hooks.
 
 Built on the [Tree of Thoughts](https://arxiv.org/abs/2305.10601) framework (Yao et al., 2023).
 
@@ -12,6 +12,7 @@ Built on the [Tree of Thoughts](https://arxiv.org/abs/2305.10601) framework (Yao
   - [Build from source](#build-from-source)
 - [Connect to an LLM client](#connect-to-an-llm-client)
   - [Claude Code plugin (recommended)](#claude-code-plugin-recommended)
+  - [OpenAI Codex plugin](#openai-codex-plugin)
   - [Claude Code MCP only](#claude-code-mcp-only)
   - [Claude Desktop](#claude-desktop)
   - [ChatGPT Desktop](#chatgpt-desktop)
@@ -69,11 +70,12 @@ curl -L https://github.com/viraf-pro/tree-of-thoughts/releases/latest/download/t
 curl -L https://github.com/viraf-pro/tree-of-thoughts/releases/latest/download/tot-mcp-linux-arm64.tar.gz | tar xz
 
 # Windows (PowerShell)
-Invoke-WebRequest https://github.com/viraf-pro/tree-of-thoughts/releases/latest/download/tot-mcp-windows-amd64.zip -OutFile tot-mcp.zip
-Expand-Archive tot-mcp.zip -DestinationPath .
+Invoke-WebRequest https://github.com/viraf-pro/tree-of-thoughts/releases/latest/download/tot-mcp-windows-amd64.exe -OutFile tot-mcp.exe
 ```
 
-Optionally move to your PATH: `mv tot-mcp /usr/local/bin/`
+**Add to PATH:**
+- macOS/Linux: `mv tot-mcp /usr/local/bin/`
+- Windows: move `tot-mcp.exe` to a directory in your `%PATH%`, or add its location to `%PATH%`
 
 ### Build from source
 
@@ -121,6 +123,46 @@ The binary version is pinned to the plugin version — updating the marketplace 
 ```bash
 claude --plugin-dir /path/to/tree-of-thoughts
 ```
+
+### OpenAI Codex plugin
+
+The same plugin experience is available for OpenAI Codex:
+
+**Repo-scoped install:**
+
+Add to `$REPO_ROOT/.agents/plugins/marketplace.json`:
+
+```json
+{
+  "name": "tree-of-thoughts",
+  "plugins": [
+    {
+      "name": "tree-of-thoughts",
+      "source": {
+        "source": "local",
+        "path": "./plugins/tree-of-thoughts"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
+```
+
+Then clone the plugin:
+
+```bash
+git clone https://github.com/viraf-pro/tree-of-thoughts.git plugins/tree-of-thoughts
+```
+
+**Personal install:**
+
+Create `~/.agents/plugins/marketplace.json` with the same JSON (change `path` to `~/.codex/plugins/tree-of-thoughts`), then clone the repo there.
+
+The Codex plugin shares the same 21 skills, 39 MCP tools, and launch scripts as the Claude Code plugin. The binary auto-downloads on first use.
 
 ### Claude Code MCP only
 
@@ -379,7 +421,8 @@ tot-mcp/
   agents/              7 specialized agents
   hooks/               Harness engineering hooks
   scripts/             Hook scripts (install, briefing, verification)
-  .claude-plugin/      Plugin manifest + marketplace
+  .claude-plugin/      Claude Code plugin manifest + marketplace
+  .codex-plugin/       OpenAI Codex plugin manifest
 ```
 
 ### Dependencies
@@ -397,7 +440,7 @@ Four Go dependencies. No CGO. Fully static binary.
 
 ```bash
 go build -o tot-mcp .       # Build
-go test ./...                # 215 tests across 10 packages
+go test ./...                # 273 tests across 11 packages
 go vet ./...                 # Lint
 make all                     # Cross-compile
 ```
