@@ -43,12 +43,21 @@ if [ -f "$INSTALL_DIR/$BINARY_NAME" ] && [ -f "$VERSION_FILE" ]; then
   fi
 fi
 
-# Try downloading pre-built binary from GitHub releases
+# Try downloading pre-built binary from GitHub releases (with retry)
 if [ -n "$TARGET" ]; then
   ARCHIVE="${BINARY_NAME}-${OS}-${ARCH}.tar.gz"
   BASE_URL="https://github.com/${REPO}/releases/download/${TARGET}"
 
-  if curl -fsSL "${BASE_URL}/${ARCHIVE}" -o "/tmp/${ARCHIVE}" 2>/dev/null; then
+  DOWNLOADED=false
+  for attempt in 1 2 3; do
+    if curl -fsSL --retry 2 "${BASE_URL}/${ARCHIVE}" -o "/tmp/${ARCHIVE}" 2>/dev/null; then
+      DOWNLOADED=true
+      break
+    fi
+    [ "$attempt" -lt 3 ] && sleep 1
+  done
+
+  if [ "$DOWNLOADED" = true ]; then
     # Verify checksum if checksums.txt is available
     CHECKSUM_OK=true
     if curl -fsSL "${BASE_URL}/checksums.txt" -o "/tmp/checksums.txt" 2>/dev/null; then
