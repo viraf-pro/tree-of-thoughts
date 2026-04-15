@@ -53,36 +53,55 @@ func Get() *sql.DB {
 	return instance
 }
 
+// currentSchemaVersion is bumped when a new migration is added.
+const currentSchemaVersion = 5
+
 func migrate(d *sql.DB) error {
 	if _, err := d.Exec(schema); err != nil {
 		return err
 	}
+
+	// Schema version tracking
+	d.Exec(`CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)`)
+	var ver int
+	if err := d.QueryRow(`SELECT version FROM schema_version`).Scan(&ver); err != nil {
+		// First run or pre-versioning database — insert initial version
+		d.Exec(`INSERT INTO schema_version (version) VALUES (0)`)
+		ver = 0
+	}
+
 	// Additive migrations for existing databases.
 	// "duplicate column name" is expected when column already exists; other errors are real failures.
-	if _, err := d.Exec(`ALTER TABLE trees ADD COLUMN embedding BLOB`); err != nil {
-		if !strings.Contains(err.Error(), "duplicate column") {
-			return fmt.Errorf("migrate embedding column: %w", err)
+	migrations := []struct {
+		version int
+		sql     string
+		desc    string
+	}{
+		{1, `ALTER TABLE trees ADD COLUMN embedding BLOB`, "trees.embedding"},
+		{2, `ALTER TABLE solution_links ADD COLUMN confidence REAL NOT NULL DEFAULT 1.0`, "solution_links.confidence"},
+		{3, `ALTER TABLE solutions ADD COLUMN rationale TEXT NOT NULL DEFAULT ''`, "solutions.rationale"},
+		{4, `ALTER TABLE solution_links ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'`, "solution_links.source"},
+	}
+
+	for _, m := range migrations {
+		if ver >= m.version {
+			continue
+		}
+		if _, err := d.Exec(m.sql); err != nil {
+			if !strings.Contains(err.Error(), "duplicate column") {
+				return fmt.Errorf("migration %d (%s): %w", m.version, m.desc, err)
+			}
 		}
 	}
-	// Ensure unique constraint on solution_links for existing databases.
-	// Creates the index if it doesn't exist; silently succeeds if it does.
+
+	// Idempotent index creation (always safe to re-run)
 	d.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_sollinks_unique ON solution_links(source_id, target_id, link_type)`)
-	// Add confidence + source columns to solution_links for existing databases
-	if _, err := d.Exec(`ALTER TABLE solution_links ADD COLUMN confidence REAL NOT NULL DEFAULT 1.0`); err != nil {
-		if !strings.Contains(err.Error(), "duplicate column") {
-			return fmt.Errorf("migrate solution_links confidence: %w", err)
-		}
+
+	// Update schema version
+	if ver < currentSchemaVersion {
+		d.Exec(`UPDATE schema_version SET version = ?`, currentSchemaVersion)
 	}
-	if _, err := d.Exec(`ALTER TABLE solutions ADD COLUMN rationale TEXT NOT NULL DEFAULT ''`); err != nil {
-		if !strings.Contains(err.Error(), "duplicate column") {
-			return fmt.Errorf("migrate solutions rationale: %w", err)
-		}
-	}
-	if _, err := d.Exec(`ALTER TABLE solution_links ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'`); err != nil {
-		if !strings.Contains(err.Error(), "duplicate column") {
-			return fmt.Errorf("migrate solution_links source: %w", err)
-		}
-	}
+
 	return nil
 }
 
