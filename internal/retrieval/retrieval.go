@@ -54,6 +54,14 @@ func CheckDimensionMismatch() {
 	}
 }
 
+// skipAutoLink disables auto-linking during bulk operations.
+// Call SuppressAutoLink(true) before a batch, SuppressAutoLink(false) after.
+var skipAutoLink bool
+
+// SuppressAutoLink disables/enables the per-store keyword search for auto-linking.
+// Use during bulk ingestion to avoid N keyword queries for N solutions.
+func SuppressAutoLink(suppress bool) { skipAutoLink = suppress }
+
 // StoreSolution saves a solution with an optional embedding.
 // rationale is optional — pass "" to skip.
 func StoreSolution(treeID, problem, solution string, thoughts, pathIDs []string, score float64, tags []string, rationale ...string) (string, error) {
@@ -83,7 +91,9 @@ func StoreSolution(treeID, problem, solution string, thoughts, pathIDs []string,
 		VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
 		id, treeID, problem, solution, string(thoughtsJSON), string(pathJSON), score, string(tagsJSON), rat, embBlob, ts)
 	if err == nil {
-		autoLinkRelated(id, problem)
+		if !skipAutoLink {
+			autoLinkRelated(id, problem)
+		}
 		LogKnowledgeEvent("stored", id, fmt.Sprintf("tree=%s tags=%v", treeID, tags))
 		events.Get().Publish(events.Event{
 			Type: events.SolutionStored, TreeID: treeID,
