@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -92,16 +94,25 @@ func main() {
 		}), nil
 	})
 
-	// Register cleanup before the blocking call so it runs on return
-	if lp, ok := ep.(*embeddings.LocalProvider); ok {
-		defer lp.Destroy()
-	}
+	// Graceful shutdown on SIGINT/SIGTERM
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		sig := <-sigCh
+		log.Printf("Received %v, shutting down...", sig)
+		dashboard.Stop()
+		if lp, ok := ep.(*embeddings.LocalProvider); ok {
+			lp.Destroy()
+		}
+		os.Exit(0)
+	}()
 
 	if err := server.ServeStdio(s); err != nil {
-		// log.Fatal calls os.Exit which skips defers. Log and set exit code
-		// so defers (lp.Destroy) run before the process exits.
 		log.Print(err)
-		defer os.Exit(1)
+	}
+	dashboard.Stop()
+	if lp, ok := ep.(*embeddings.LocalProvider); ok {
+		lp.Destroy()
 	}
 }
 
